@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 import uuid
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 router = APIRouter()
 
@@ -77,18 +78,34 @@ def get_funnel_counts():
 
 @router.get("/companies/{company_id}/details")
 def get_company_details(company_id: str):
-    company = supabase.table("companies").select("*").eq("id", company_id).single().execute()
-    people = supabase.table("person_company_history").select("*, people(*)").eq("company_id", company_id).eq("is_current", True).execute()
-    tasks = supabase.table("tasks").select("*").eq("company_id", company_id).order("due_date").execute()
-    notes = supabase.table("notes").select("*").eq("company_id", company_id).order("created_at", desc=True).execute()
-    activities = supabase.table("activities").select("*").eq("company_id", company_id).order("activity_date", desc=True).execute()
-    engagements = supabase.table("engagements").select("*").eq("company_id", company_id).eq("status", "active").execute()
+    def q_company():
+        return supabase.table("companies").select("*").eq("id", company_id).single().execute()
+    def q_people():
+        return supabase.table("person_company_history").select("*, people(*)").eq("company_id", company_id).eq("is_current", True).execute()
+    def q_notes():
+        return supabase.table("notes").select("*").eq("company_id", company_id).order("created_at", desc=True).execute()
+    def q_activities():
+        return supabase.table("activities").select("*").eq("company_id", company_id).order("activity_date", desc=True).execute()
+    def q_engagements():
+        return supabase.table("engagements").select("*").eq("company_id", company_id).eq("status", "active").execute()
+
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        f_company     = ex.submit(q_company)
+        f_people      = ex.submit(q_people)
+        f_notes       = ex.submit(q_notes)
+        f_activities  = ex.submit(q_activities)
+        f_engagements = ex.submit(q_engagements)
+
+    company     = f_company.result()
+    people      = f_people.result()
+    notes       = f_notes.result()
+    activities  = f_activities.result()
+    engagements = f_engagements.result()
 
     eng = engagements.data[0] if engagements.data else None
     return {
         "company": company.data,
         "people": [r["people"] | {"role": r["role"]} for r in people.data],
-        "tasks": tasks.data,
         "notes": notes.data,
         "activities": activities.data,
         "engagement": eng,
@@ -192,11 +209,30 @@ def change_stage(company_id: str, body: StageIn):
 
 @router.get("/people/{person_id}")
 def get_person_detail(person_id: str):
-    person = supabase.table("people").select("*").eq("id", person_id).single().execute()
-    history = supabase.table("person_company_history").select("*, companies(*)").eq("person_id", person_id).order("from_date", desc=True).execute()
-    notes = supabase.table("notes").select("*").eq("person_id", person_id).order("created_at", desc=True).execute()
-    activities = supabase.table("activities").select("*").eq("person_id", person_id).order("activity_date", desc=True).execute()
-    tasks = supabase.table("tasks").select("*").eq("person_id", person_id).order("due_date").execute()
+    def q_person():
+        return supabase.table("people").select("*").eq("id", person_id).single().execute()
+    def q_history():
+        return supabase.table("person_company_history").select("*, companies(*)").eq("person_id", person_id).order("from_date", desc=True).execute()
+    def q_notes():
+        return supabase.table("notes").select("*").eq("person_id", person_id).order("created_at", desc=True).execute()
+    def q_activities():
+        return supabase.table("activities").select("*").eq("person_id", person_id).order("activity_date", desc=True).execute()
+    def q_tasks():
+        return supabase.table("tasks").select("*").eq("person_id", person_id).order("due_date").execute()
+
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        f_person     = ex.submit(q_person)
+        f_history    = ex.submit(q_history)
+        f_notes      = ex.submit(q_notes)
+        f_activities = ex.submit(q_activities)
+        f_tasks      = ex.submit(q_tasks)
+
+    person     = f_person.result()
+    history    = f_history.result()
+    notes      = f_notes.result()
+    activities = f_activities.result()
+    tasks      = f_tasks.result()
+
     current = next((r for r in history.data if r.get("is_current")), None)
     return {
         "person": person.data,
