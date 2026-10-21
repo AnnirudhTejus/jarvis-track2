@@ -457,6 +457,15 @@ function goBack() {
 }
 
 // ─── Person detail page ───────────────────────────────────────────────────────
+function switchPersonTab(tabName, personId) {
+  document.querySelectorAll(`.person-tab[data-person="${personId}"]`).forEach(t => t.classList.remove('active'));
+  document.querySelectorAll(`.person-tab-panel[data-person="${personId}"]`).forEach(p => p.classList.remove('active'));
+  const tab = document.querySelector(`.person-tab[data-person="${personId}"][data-tab="${tabName}"]`);
+  const panel = document.querySelector(`.person-tab-panel[data-person="${personId}"][data-tab="${tabName}"]`);
+  if (tab) tab.classList.add('active');
+  if (panel) panel.classList.add('active');
+}
+
 async function openPersonDetail(id) {
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
@@ -464,121 +473,147 @@ async function openPersonDetail(id) {
   const details = await fetchPersonDetails(id);
   const p = details.person;
 
-  const companyHtml = details.current_company
-    ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-         <div class="company-avatar ${details.current_company.avatar_color}" style="width:22px;height:22px;font-size:10px;border-radius:5px;">${details.current_company.initials}</div>
-         <span style="font-size:13px;color:#444441;">${details.current_company.name}</span>
+  // ── Derived counts ──────────────────────────────────────────────────────────
+  const activityCount  = (details.activities || []).length;
+  const notesCount     = (details.notes || []).length;
+  const personTasks    = details.tasks || [];
+  const pendingTasks   = personTasks.filter(t => t.status !== 'done');
+  const doneTasks      = personTasks.filter(t => t.status === 'done');
+  const taskCount      = personTasks.length;
+
+  // ── Last interaction ────────────────────────────────────────────────────────
+  const allDates = [
+    ...( details.activities || []).map(a => a.activity_date),
+    ...( details.notes      || []).map(n => n.created_at),
+  ].filter(Boolean).sort().reverse();
+  const lastInteractionDate = allDates[0];
+  const lastSeenHtml = lastInteractionDate
+    ? `<span class="person-last-seen"><i class="ti ti-clock"></i> Last interaction ${timeAgo(lastInteractionDate)}</span>`
+    : `<span class="person-last-seen"><i class="ti ti-clock"></i> No interactions yet</span>`;
+
+  // ── Company chip ────────────────────────────────────────────────────────────
+  const companyChip = details.current_company
+    ? `<div style="display:flex;align-items:center;gap:7px;cursor:pointer;" onclick="openCompanyDetail('${details.current_company.id}')">
+         <div class="company-avatar ${details.current_company.avatar_color}" style="width:20px;height:20px;font-size:9px;border-radius:4px;">${details.current_company.initials}</div>
+         <span style="font-size:13px;color:#444441;font-weight:500;">${details.current_company.name}</span>
          ${details.current_role ? `<span style="font-size:12px;color:#a09e97;">· ${details.current_role}</span>` : ''}
        </div>`
-    : '<div style="font-size:13px;color:#a09e97;margin-top:4px;">No company on record</div>';
+    : `<span style="font-size:13px;color:#a09e97;">No company on record</span>`;
 
-  const historyHtml = details.history.length
-    ? details.history.map(h => `
-        <div class="tl-item">
-          <div class="tl-dot" style="background:${h.is_current ? '#7F77DD' : '#c8c6be'};"></div>
-          <div>
-            <div class="tl-text">${h.companies?.name || 'Unknown'} — ${h.role || 'No role'}</div>
-            <div class="tl-date">${h.is_current ? 'Current' : (h.from_date ? new Date(h.from_date).getFullYear() : '')}</div>
-          </div>
-        </div>
-      `).join('')
-    : '<div class="empty-mini">No history.</div>';
+  // ── Tab: Activity ───────────────────────────────────────────────────────────
+  const activitiesHtml = (details.activities || []).map(a => `
+    <div class="tl-item">
+      <div class="tl-dot" style="background:${a.color || '#7F77DD'};"></div>
+      <div>
+        <div class="tl-text">${a.text}</div>
+        <div class="tl-date">${timeAgo(a.activity_date)}</div>
+      </div>
+    </div>
+  `).join('') || '<div class="empty-mini">No activity recorded yet.</div>';
 
-  const notesHtml = details.notes.map(n => `
+  // Employment history inside activity tab
+  const historyHtml = (details.history || []).length
+    ? `<div style="margin-top:20px;">
+         <div class="detail-section-title" style="margin-bottom:10px;"><i class="ti ti-briefcase"></i> Employment history</div>
+         ${details.history.map(h => `
+           <div class="tl-item">
+             <div class="tl-dot" style="background:${h.is_current ? '#7F77DD' : '#c8c6be'};"></div>
+             <div>
+               <div class="tl-text">${h.companies?.name || 'Unknown'} — ${h.role || 'No role'}</div>
+               <div class="tl-date">${h.is_current ? 'Current' : (h.from_date ? new Date(h.from_date).getFullYear() : '')}</div>
+             </div>
+           </div>
+         `).join('')}
+       </div>`
+    : '';
+
+  // ── Tab: Notes ──────────────────────────────────────────────────────────────
+  const notesListHtml = (details.notes || []).map(n => `
     <div class="note-box">
       <div class="note-content">${n.content}</div>
       <div class="note-date">${timeAgo(n.created_at)}</div>
     </div>
   `).join('') || '<div class="empty-mini">No notes yet.</div>';
 
-  const activitiesHtml = details.activities.map(a => `
-    <div class="tl-item">
-      <div class="tl-dot" style="background:${a.color || '#c8c6be'};"></div>
-      <div>
-        <div class="tl-text">${a.text}</div>
-        <div class="tl-date">${timeAgo(a.activity_date)}</div>
+  // ── Tab: Tasks ──────────────────────────────────────────────────────────────
+  const pendingTasksHtml = pendingTasks.map(t => taskItemHtml(t)).join('') || '<div class="empty-mini">No open tasks.</div>';
+  const doneTasksHtml = doneTasks.length
+    ? `<div id="done-tasks-toggle-person-${p.id}" style="margin-top:8px;">
+         <button onclick="toggleDoneTasks('person-${p.id}')" style="font-size:11px;color:#a09e97;background:none;border:none;cursor:pointer;padding:2px 0;display:flex;align-items:center;gap:4px;">
+           <i class="ti ti-chevron-right" id="done-chevron-person-${p.id}"></i>
+           <span id="done-count-person-${p.id}">${doneTasks.length}</span> completed
+         </button>
+         <div id="done-list-person-${p.id}" style="display:none;margin-top:6px;">
+           ${doneTasks.map(t => taskItemHtml(t, true)).join('')}
+         </div>
+       </div>`
+    : '';
+
+  // ── Contact details sidebar strip ───────────────────────────────────────────
+  const contactDetailsHtml = `
+    <div class="detail-section" style="margin-bottom:16px;">
+      <div class="detail-section-title"><i class="ti ti-id-badge"></i> Contact</div>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-top:4px;">
+        ${p.email ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-mail" style="color:#a09e97;font-size:14px;width:16px;"></i><a href="mailto:${p.email}" style="font-size:13px;color:#7F77DD;text-decoration:none;word-break:break-all;">${p.email}</a></div>` : ''}
+        ${p.phone ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-phone" style="color:#a09e97;font-size:14px;width:16px;"></i><a href="tel:${p.phone}" style="font-size:13px;color:#444441;text-decoration:none;">${p.phone}</a></div>` : ''}
+        ${p.linkedin ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-brand-linkedin" style="color:#a09e97;font-size:14px;width:16px;"></i><a href="${p.linkedin}" target="_blank" style="font-size:13px;color:#7F77DD;text-decoration:none;">LinkedIn profile</a></div>` : ''}
+        ${!p.email && !p.phone && !p.linkedin ? '<div class="empty-mini">No contact details.</div>' : ''}
       </div>
     </div>
-  `).join('') || '<div class="empty-mini">No activity yet.</div>';
+  `;
 
   content.innerHTML = `
     <div class="detail-page">
       <button class="back-btn" onclick="goBack()"><i class="ti ti-arrow-left"></i> Back</button>
 
-      <div class="detail-page-header">
-        <div class="p-avatar av-purple" style="width:48px;height:48px;font-size:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;">${getInitials(p.full_name)}</div>
-        <div style="flex:1;">
-          <div style="font-size:20px;font-weight:700;color:#2c2c2a;">${p.full_name}</div>
-          ${companyHtml}
+      <!-- Person header -->
+      <div class="person-detail-header">
+        <div class="p-avatar av-purple" style="width:52px;height:52px;font-size:19px;border-radius:50%;flex-shrink:0;">${getInitials(p.full_name)}</div>
+        <div class="person-header-meta">
+          <div class="person-header-name">${p.full_name}</div>
+          <div class="person-header-sub">
+            ${companyChip}
+            <span style="color:#d4d1c8;">·</span>
+            ${lastSeenHtml}
+          </div>
         </div>
-        <div style="display:flex;gap:8px;">
-          ${p.email ? `<a href="mailto:${p.email}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;" title="${p.email}"><i class="ti ti-mail"></i></a>` : ''}
-          ${p.phone ? `<a href="tel:${p.phone}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;" title="${p.phone}"><i class="ti ti-phone"></i></a>` : ''}
+        <div style="display:flex;gap:8px;flex-shrink:0;">
+          ${p.email    ? `<a href="mailto:${p.email}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;" title="${p.email}"><i class="ti ti-mail"></i></a>` : ''}
+          ${p.phone    ? `<a href="tel:${p.phone}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;" title="${p.phone}"><i class="ti ti-phone"></i></a>` : ''}
           ${p.linkedin ? `<a href="${p.linkedin}" target="_blank" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;"><i class="ti ti-brand-linkedin"></i></a>` : ''}
         </div>
       </div>
 
+      <!-- Tab bar -->
+      <div class="person-tabs-bar">
+        <button class="person-tab active" data-person="${p.id}" data-tab="activity" onclick="switchPersonTab('activity','${p.id}')">
+          <i class="ti ti-activity"></i> Activity <span class="tab-count">${activityCount}</span>
+        </button>
+        <button class="person-tab" data-person="${p.id}" data-tab="notes" onclick="switchPersonTab('notes','${p.id}')">
+          <i class="ti ti-notes"></i> Notes <span class="tab-count">${notesCount}</span>
+        </button>
+        <button class="person-tab" data-person="${p.id}" data-tab="tasks" onclick="switchPersonTab('tasks','${p.id}')">
+          <i class="ti ti-checkbox"></i> Tasks <span class="tab-count">${taskCount}</span>
+        </button>
+      </div>
+
+      <!-- Tab panels + side contact column -->
       <div class="detail-page-body">
         <div class="detail-col-main">
-          <!-- Contact details -->
-          <div class="detail-section">
-            <div class="detail-section-title"><i class="ti ti-id-badge"></i> Contact details</div>
-            <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px;">
-              ${p.email ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-mail" style="color:#a09e97;font-size:14px;width:16px;"></i><a href="mailto:${p.email}" style="font-size:13px;color:#7F77DD;text-decoration:none;">${p.email}</a></div>` : ''}
-              ${p.phone ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-phone" style="color:#a09e97;font-size:14px;width:16px;"></i><a href="tel:${p.phone}" style="font-size:13px;color:#444441;text-decoration:none;">${p.phone}</a></div>` : ''}
-              ${p.linkedin ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-brand-linkedin" style="color:#a09e97;font-size:14px;width:16px;"></i><a href="${p.linkedin}" target="_blank" style="font-size:13px;color:#7F77DD;text-decoration:none;">LinkedIn profile</a></div>` : ''}
-              ${!p.email && !p.phone && !p.linkedin ? '<div class="empty-mini">No contact details on file.</div>' : ''}
-            </div>
-          </div>
-          <!-- Activity -->
-          <div class="detail-section">
-            <div class="detail-section-title"><i class="ti ti-activity"></i> Activity</div>
+
+          <!-- Activity panel -->
+          <div class="person-tab-panel active detail-section" data-person="${p.id}" data-tab="activity">
             ${activitiesHtml}
+            ${historyHtml}
           </div>
-        </div>
 
-        <div class="detail-col-side">
-          <!-- Tasks -->
-          ${(() => {
-            const personTasks = details.tasks || [];
-            const pendingPersonTasks = personTasks.filter(t => t.status !== 'done');
-            const donePersonTasks = personTasks.filter(t => t.status === 'done');
-            const pendingPersonTasksHtml = pendingPersonTasks.map(t => taskItemHtml(t)).join('') || '<div class="empty-mini">No open tasks.</div>';
-            const donePersonTasksHtml = donePersonTasks.length
-              ? `<div id="done-tasks-toggle-person-${p.id}" style="margin-top:8px;">
-                   <button onclick="toggleDoneTasks('person-${p.id}')" style="font-size:11px;color:#a09e97;background:none;border:none;cursor:pointer;padding:2px 0;display:flex;align-items:center;gap:4px;">
-                     <i class="ti ti-chevron-right" id="done-chevron-person-${p.id}"></i> ${donePersonTasks.length} completed
-                   </button>
-                   <div id="done-list-person-${p.id}" style="display:none;margin-top:6px;">
-                     ${donePersonTasks.map(t => taskItemHtml(t, true)).join('')}
-                   </div>
-                 </div>`
-              : '';
-            return `
-          <div class="detail-section">
-            <div class="detail-section-title" style="justify-content:space-between;">
-              <span><i class="ti ti-checkbox"></i> Tasks</span>
-              <button class="add-inline-btn" onclick="togglePersonAddTask('${p.id}')"><i class="ti ti-plus"></i> Add</button>
+          <!-- Notes panel -->
+          <div class="person-tab-panel detail-section" data-person="${p.id}" data-tab="notes">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <span class="detail-section-title" style="margin-bottom:0;"><i class="ti ti-notes"></i> Notes</span>
+              <button class="add-inline-btn" onclick="togglePersonAddNote('${p.id}')"><i class="ti ti-plus"></i> Add note</button>
             </div>
-            <div id="person-tasks-list-${p.id}">${pendingPersonTasksHtml}${donePersonTasksHtml}</div>
-            <div id="person-add-task-form-${p.id}" style="display:none;" class="inline-form">
-              <input type="text" id="person-task-text-${p.id}" placeholder="Task description…" class="inline-input"/>
-              <input type="date" id="person-task-date-${p.id}" class="inline-input" style="margin-top:6px;"/>
-              <div style="display:flex;gap:6px;margin-top:8px;">
-                <button class="btn btn-primary" style="flex:1;padding:7px;" onclick="submitPersonTask('${p.id}')">Save</button>
-                <button class="btn btn-secondary" onclick="togglePersonAddTask('${p.id}')">Cancel</button>
-              </div>
-            </div>
-          </div>`;
-          })()}
-
-          <!-- Notes -->
-          <div class="detail-section">
-            <div class="detail-section-title" style="justify-content:space-between;">
-              <span><i class="ti ti-notes"></i> Notes</span>
-              <button class="add-inline-btn" onclick="togglePersonAddNote('${p.id}')"><i class="ti ti-plus"></i> Add</button>
-            </div>
-            <div id="person-notes-list-${p.id}">${notesHtml}</div>
+            <div id="person-notes-list-${p.id}">${notesListHtml}</div>
             <div id="person-add-note-form-${p.id}" style="display:none;" class="inline-form">
               <textarea id="person-note-text-${p.id}" placeholder="Write a note…" class="inline-input" rows="4" style="resize:vertical;"></textarea>
               <div style="display:flex;gap:6px;margin-top:8px;">
@@ -587,6 +622,29 @@ async function openPersonDetail(id) {
               </div>
             </div>
           </div>
+
+          <!-- Tasks panel -->
+          <div class="person-tab-panel detail-section" data-person="${p.id}" data-tab="tasks">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <span class="detail-section-title" style="margin-bottom:0;"><i class="ti ti-checkbox"></i> Tasks</span>
+              <button class="add-inline-btn" onclick="togglePersonAddTask('${p.id}')"><i class="ti ti-plus"></i> Add task</button>
+            </div>
+            <div id="person-tasks-list-${p.id}">${pendingTasksHtml}${doneTasksHtml}</div>
+            <div id="person-add-task-form-${p.id}" style="display:none;" class="inline-form">
+              <input type="text" id="person-task-text-${p.id}" placeholder="Task description…" class="inline-input"/>
+              <input type="date" id="person-task-date-${p.id}" class="inline-input" style="margin-top:6px;"/>
+              <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn btn-primary" style="flex:1;padding:7px;" onclick="submitPersonTask('${p.id}')">Save</button>
+                <button class="btn btn-secondary" onclick="togglePersonAddTask('${p.id}')">Cancel</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Side: contact details (always visible) -->
+        <div class="detail-col-side">
+          ${contactDetailsHtml}
         </div>
       </div>
     </div>
