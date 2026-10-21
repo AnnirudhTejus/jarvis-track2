@@ -55,6 +55,33 @@ def get_companies():
     return result
 
 
+@router.get("/dashboard/stats")
+def get_dashboard_stats():
+    from datetime import timezone, timedelta
+    now = datetime.now(timezone.utc)
+    today_str = now.date().isoformat()
+    stale_cutoff = (now - timedelta(days=30)).isoformat()
+
+    # Tasks due today or overdue (pending)
+    tasks_due = supabase.table("tasks").select("id, text, due_date, company_id, person_id, status") \
+        .eq("status", "pending").lte("due_date", today_str).execute()
+
+    # Companies with no activity in last 30 days (check updated_at on engagements)
+    stale_eng = supabase.table("engagements").select("company_id, updated_at") \
+        .eq("status", "active").lte("updated_at", stale_cutoff).execute()
+
+    # Tasks completed today
+    done_today = supabase.table("tasks").select("id").eq("status", "done") \
+        .gte("updated_at", now.date().isoformat() if hasattr(now, "date") else today_str).execute()
+
+    return {
+        "tasks_due_count": len(tasks_due.data),
+        "tasks_due": tasks_due.data[:5],
+        "stale_companies_count": len(stale_eng.data),
+        "done_today_count": len(done_today.data) if done_today.data else 0,
+    }
+
+
 @router.get("/dashboard/funnel")
 def get_funnel_counts():
     engagements = supabase.table("engagements").select("stage").eq("status", "active").execute()
@@ -69,7 +96,7 @@ def get_funnel_counts():
 def get_company_details(company_id: str):
     company = supabase.table("companies").select("*").eq("id", company_id).single().execute()
     people = supabase.table("person_company_history").select("*, people(*)").eq("company_id", company_id).eq("is_current", True).execute()
-    tasks = supabase.table("tasks").select("*").eq("company_id", company_id).eq("status", "pending").order("due_date").execute()
+    tasks = supabase.table("tasks").select("*").eq("company_id", company_id).order("due_date").execute()
     notes = supabase.table("notes").select("*").eq("company_id", company_id).order("created_at", desc=True).execute()
     activities = supabase.table("activities").select("*").eq("company_id", company_id).order("activity_date", desc=True).execute()
     engagements = supabase.table("engagements").select("*").eq("company_id", company_id).eq("status", "active").execute()
@@ -109,11 +136,30 @@ class NoteIn(BaseModel):
     company_id: str
     content: str
 
+class PersonTaskIn(BaseModel):
+    person_id: str
+    text: str
+    due_date: Optional[str] = None
+
 @router.post("/tasks")
 def create_task(body: TaskIn):
     row = {
         "id": str(uuid.uuid4()),
         "company_id": body.company_id,
+        "text": body.text,
+        "status": "pending",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    if body.due_date:
+        row["due_date"] = body.due_date
+    result = supabase.table("tasks").insert(row).execute()
+    return result.data[0] if result.data else row
+
+@router.post("/people/{person_id}/tasks")
+def create_person_task(person_id: str, body: PersonTaskIn):
+    row = {
+        "id": str(uuid.uuid4()),
+        "person_id": person_id,
         "text": body.text,
         "status": "pending",
         "created_at": datetime.utcnow().isoformat(),
@@ -144,6 +190,21 @@ def complete_task(task_id: str):
     return result.data[0] if result.data else {"id": task_id, "status": "done"}
 
 
+# ── Stage change ───────────────────────────────────────────────────────────────
+
+class StageIn(BaseModel):
+    stage: str
+
+@router.patch("/companies/{company_id}/stage")
+def change_stage(company_id: str, body: StageIn):
+    stage = normalise_stage(body.stage)
+    result = supabase.table("engagements").update({
+        "stage": stage,
+        "updated_at": datetime.utcnow().isoformat()
+    }).eq("company_id", company_id).eq("status", "active").execute()
+    return {"company_id": company_id, "stage": stage}
+
+
 # ── Person detail ──────────────────────────────────────────────────────────────
 
 @router.get("/people/{person_id}")
@@ -152,6 +213,7 @@ def get_person_detail(person_id: str):
     history = supabase.table("person_company_history").select("*, companies(*)").eq("person_id", person_id).order("from_date", desc=True).execute()
     notes = supabase.table("notes").select("*").eq("person_id", person_id).order("created_at", desc=True).execute()
     activities = supabase.table("activities").select("*").eq("person_id", person_id).order("activity_date", desc=True).execute()
+    tasks = supabase.table("tasks").select("*").eq("person_id", person_id).order("due_date").execute()
     current = next((r for r in history.data if r.get("is_current")), None)
     return {
         "person": person.data,
@@ -160,6 +222,7 @@ def get_person_detail(person_id: str):
         "history": history.data,
         "notes": notes.data,
         "activities": activities.data,
+        "tasks": tasks.data,
     }
 
 

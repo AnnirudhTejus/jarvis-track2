@@ -55,6 +55,29 @@ async function patchTaskDone(task_id) {
   return await res.json();
 }
 
+async function patchStage(company_id, stage) {
+  const res = await fetch(`/api/companies/${company_id}/stage`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stage })
+  });
+  return await res.json();
+}
+
+async function postPersonTask(person_id, text, due_date) {
+  const res = await fetch(`/api/people/${person_id}/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ person_id, text, due_date: due_date || null })
+  });
+  return await res.json();
+}
+
+async function fetchDashboardStats() {
+  const res = await fetch('/api/dashboard/stats');
+  return await res.json();
+}
+
 async function fetchPersonDetails(id) {
   const res = await fetch(`/api/people/${id}`);
   return await res.json();
@@ -85,6 +108,56 @@ async function postPerson(data) {
     body: JSON.stringify(data)
   });
   return await res.json();
+}
+
+// ─── Task helpers ─────────────────────────────────────────────────────────────
+function taskItemHtml(t, isDone = false) {
+  const due = dueDateLabel(t.due_date);
+  return `
+    <div class="task-item" id="task-${t.id}" style="${isDone ? 'opacity:0.5;' : ''}">
+      <div class="task-box${isDone ? ' task-box-done' : ''}"
+           onclick="${isDone ? '' : `markTaskDone('${t.id}')`}"
+           style="${isDone ? 'background:#7F77DD;border-color:#7F77DD;cursor:default;' : ''}"></div>
+      <div style="flex:1;">
+        <div class="task-text" style="${isDone ? 'text-decoration:line-through;color:#a09e97;' : ''}">${t.text}</div>
+        ${due ? `<div class="task-due ${due.cls}">${due.label}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function toggleDoneTasks(scopeId) {
+  const list = document.getElementById(`done-list-${scopeId}`);
+  const chevron = document.getElementById(`done-chevron-${scopeId}`);
+  if (!list) return;
+  const isOpen = list.style.display !== 'none';
+  list.style.display = isOpen ? 'none' : 'block';
+  if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(90deg)';
+}
+
+async function changeCompanyStage(companyId, newStage) {
+  // Optimistic update of the stage pill
+  const pill = document.getElementById(`company-stage-pill-${companyId}`);
+  const s = stageStyle(newStage);
+  if (pill) { pill.textContent = newStage; pill.style.background = s.bg; pill.style.color = s.text; }
+
+  try {
+    await patchStage(companyId, newStage);
+    // Refresh company list in background
+    fetchCompanies();
+    // Rebuild the "Move to" buttons to remove the new current stage
+    const moveRow = pill?.closest('.detail-page-header')?.querySelector('.stage-change-row');
+    if (moveRow) {
+      moveRow.innerHTML = `<span style="font-size:11px;color:#a09e97;margin-right:2px;">Move to:</span>` +
+        STAGE_ORDER.filter(st => st !== newStage).map(st => {
+          const sc = stageStyle(st);
+          return `<button onclick="changeCompanyStage('${companyId}','${st}')" class="stage-change-btn" style="background:${sc.bg};color:${sc.text};border:none;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;" onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'">${st}</button>`;
+        }).join('');
+    }
+  } catch(e) {
+    // Revert on failure
+    if (pill) { const os = stageStyle(pill._origStage || newStage); pill.textContent = pill._origStage || newStage; pill.style.background = os.bg; pill.style.color = os.text; }
+  }
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -137,7 +210,7 @@ async function renderDashboard() {
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
 
-  const [companies, funnel] = await Promise.all([fetchCompanies(), fetchFunnel()]);
+  const [companies, funnel, stats] = await Promise.all([fetchCompanies(), fetchFunnel(), fetchDashboardStats()]);
   const { counts } = funnel;
 
   const funnelHtml = `
@@ -164,25 +237,27 @@ async function renderDashboard() {
     ? companies.filter(c => c.stage === activeFunnelStage)
     : companies;
 
-  const urgent = companies.filter(c => c.ai_class === 'ai-urgent');
-  const totalClient = counts['Client'] || 0;
-
-  const summaryHtml = `
+  // Actionable tiles — things you can do, not just numbers
+  const actionTilesHtml = `
     <div class="stats-row" style="margin-top:18px;">
-      <div class="stat-card">
-        <div class="stat-label">Total companies</div>
-        <div class="stat-value">${companies.length}</div>
-        <div class="stat-sub up">In database</div>
+      <div class="stat-card action-tile" onclick="switchView('tasks')" style="cursor:pointer;">
+        <div class="stat-label" style="display:flex;align-items:center;gap:5px;"><i class="ti ti-alert-circle" style="color:#A32D2D;font-size:13px;"></i> Tasks overdue / due today</div>
+        <div class="stat-value" style="${stats.tasks_due_count > 0 ? 'color:#A32D2D;' : ''}">${stats.tasks_due_count}</div>
+        <div class="stat-sub" style="${stats.tasks_due_count > 0 ? 'color:#A32D2D;' : 'color:#0F6E56;'}">
+          ${stats.tasks_due_count > 0 ? 'Needs your attention' : 'All clear'}
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Clients</div>
-        <div class="stat-value">${totalClient}</div>
-        <div class="stat-sub up">Active clients</div>
+      <div class="stat-card action-tile" onclick="filterByStage(null)" style="cursor:pointer;">
+        <div class="stat-label" style="display:flex;align-items:center;gap:5px;"><i class="ti ti-building-off" style="color:#854F0B;font-size:13px;"></i> Stale — no activity 30d+</div>
+        <div class="stat-value" style="${stats.stale_companies_count > 0 ? 'color:#854F0B;' : ''}">${stats.stale_companies_count}</div>
+        <div class="stat-sub" style="${stats.stale_companies_count > 0 ? 'color:#854F0B;' : 'color:#0F6E56;'}">
+          ${stats.stale_companies_count > 0 ? 'Consider reaching out' : 'All engaged'}
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Need follow up</div>
-        <div class="stat-value">${urgent.length}</div>
-        <div class="stat-sub" style="color:#A32D2D;">Flagged by Jarvis</div>
+      <div class="stat-card" style="opacity:0.6;">
+        <div class="stat-label" style="display:flex;align-items:center;gap:5px;"><i class="ti ti-robot" style="font-size:13px;"></i> AI suggestions</div>
+        <div class="stat-value">—</div>
+        <div class="stat-sub">Coming in Phase 3</div>
       </div>
     </div>
   `;
@@ -197,7 +272,7 @@ async function renderDashboard() {
     ? `<div class="empty-state" style="height:200px;"><i class="ti ti-building-off"></i><p>No companies in this stage</p></div>`
     : `<div class="cards-grid">${filtered.map(c => companyCardHtml(c, true)).join('')}</div>`;
 
-  content.innerHTML = funnelHtml + summaryHtml + stageLabel + cardsHtml;
+  content.innerHTML = funnelHtml + actionTilesHtml + stageLabel + cardsHtml;
 }
 
 function filterByStage(stage) {
@@ -252,18 +327,20 @@ async function openCompanyDetail(id) {
       `).join('')
     : '<div class="empty-mini">No contacts yet.</div>';
 
-  const tasksHtml = details.tasks.map(t => {
-    const due = dueDateLabel(t.due_date);
-    return `
-      <div class="task-item" id="task-${t.id}">
-        <div class="task-box" onclick="markTaskDone('${t.id}')"></div>
-        <div style="flex:1;">
-          <div class="task-text">${t.text}</div>
-          ${due ? `<div class="task-due ${due.cls}">${due.label}</div>` : ''}
-        </div>
-      </div>
-    `;
-  }).join('') || '<div class="empty-mini">No tasks.</div>';
+  const pendingTasks = details.tasks.filter(t => t.status !== 'done');
+  const doneTasks = details.tasks.filter(t => t.status === 'done');
+
+  const pendingTasksHtml = pendingTasks.map(t => taskItemHtml(t)).join('') || '<div class="empty-mini">No open tasks.</div>';
+  const doneTasksHtml = doneTasks.length
+    ? `<div id="done-tasks-toggle-company-${c.id}" style="margin-top:8px;">
+         <button onclick="toggleDoneTasks('company-${c.id}')" style="font-size:11px;color:#a09e97;background:none;border:none;cursor:pointer;padding:2px 0;display:flex;align-items:center;gap:4px;">
+           <i class="ti ti-chevron-right" id="done-chevron-company-${c.id}"></i> ${doneTasks.length} completed
+         </button>
+         <div id="done-list-company-${c.id}" style="display:none;margin-top:6px;">
+           ${doneTasks.map(t => taskItemHtml(t, true)).join('')}
+         </div>
+       </div>`
+    : '';
 
   const notesHtml = details.notes.map(n => `
     <div class="note-box">
@@ -296,8 +373,16 @@ async function openCompanyDetail(id) {
         <div style="flex:1;">
           <div style="font-size:20px;font-weight:700;color:#2c2c2a;">${c.name}</div>
           <div style="font-size:13px;color:#73726c;margin-top:3px;">${c.industry || ''}${c.location ? ' · ' + c.location : ''}</div>
+          <!-- Stage change pills -->
+          <div class="stage-change-row" style="display:flex;align-items:center;gap:5px;margin-top:10px;flex-wrap:wrap;">
+            <span style="font-size:11px;color:#a09e97;margin-right:2px;">Move to:</span>
+            ${STAGE_ORDER.filter(st => st !== details.stage).map(st => {
+              const sc = stageStyle(st);
+              return `<button onclick="changeCompanyStage('${c.id}','${st}')" class="stage-change-btn" style="background:${sc.bg};color:${sc.text};border:none;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;transition:opacity 0.1s;" onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'">${st}</button>`;
+            }).join('')}
+          </div>
         </div>
-        <span class="stage-pill-lg" style="background:${s.bg};color:${s.text};">${details.stage}</span>
+        <span class="stage-pill-lg" id="company-stage-pill-${c.id}" style="background:${s.bg};color:${s.text};">${details.stage}</span>
       </div>
 
       <!-- Body: two-column -->
@@ -329,7 +414,7 @@ async function openCompanyDetail(id) {
               <span><i class="ti ti-checkbox"></i> Tasks</span>
               <button class="add-inline-btn" onclick="toggleAddTask('${c.id}')"><i class="ti ti-plus"></i> Add</button>
             </div>
-            <div id="tasks-list-${c.id}">${tasksHtml}</div>
+            <div id="tasks-list-${c.id}">${pendingTasksHtml}${doneTasksHtml}</div>
             <div id="add-task-form-${c.id}" style="display:none;" class="inline-form">
               <input type="text" id="task-text-${c.id}" placeholder="Task description…" class="inline-input"/>
               <input type="date" id="task-date-${c.id}" class="inline-input" style="margin-top:6px;"/>
@@ -447,6 +532,40 @@ async function openPersonDetail(id) {
         </div>
 
         <div class="detail-col-side">
+          <!-- Tasks -->
+          ${(() => {
+            const personTasks = details.tasks || [];
+            const pendingPersonTasks = personTasks.filter(t => t.status !== 'done');
+            const donePersonTasks = personTasks.filter(t => t.status === 'done');
+            const pendingPersonTasksHtml = pendingPersonTasks.map(t => taskItemHtml(t)).join('') || '<div class="empty-mini">No open tasks.</div>';
+            const donePersonTasksHtml = donePersonTasks.length
+              ? `<div id="done-tasks-toggle-person-${p.id}" style="margin-top:8px;">
+                   <button onclick="toggleDoneTasks('person-${p.id}')" style="font-size:11px;color:#a09e97;background:none;border:none;cursor:pointer;padding:2px 0;display:flex;align-items:center;gap:4px;">
+                     <i class="ti ti-chevron-right" id="done-chevron-person-${p.id}"></i> ${donePersonTasks.length} completed
+                   </button>
+                   <div id="done-list-person-${p.id}" style="display:none;margin-top:6px;">
+                     ${donePersonTasks.map(t => taskItemHtml(t, true)).join('')}
+                   </div>
+                 </div>`
+              : '';
+            return `
+          <div class="detail-section">
+            <div class="detail-section-title" style="justify-content:space-between;">
+              <span><i class="ti ti-checkbox"></i> Tasks</span>
+              <button class="add-inline-btn" onclick="togglePersonAddTask('${p.id}')"><i class="ti ti-plus"></i> Add</button>
+            </div>
+            <div id="person-tasks-list-${p.id}">${pendingPersonTasksHtml}${donePersonTasksHtml}</div>
+            <div id="person-add-task-form-${p.id}" style="display:none;" class="inline-form">
+              <input type="text" id="person-task-text-${p.id}" placeholder="Task description…" class="inline-input"/>
+              <input type="date" id="person-task-date-${p.id}" class="inline-input" style="margin-top:6px;"/>
+              <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn btn-primary" style="flex:1;padding:7px;" onclick="submitPersonTask('${p.id}')">Save</button>
+                <button class="btn btn-secondary" onclick="togglePersonAddTask('${p.id}')">Cancel</button>
+              </div>
+            </div>
+          </div>`;
+          })()}
+
           <!-- Notes -->
           <div class="detail-section">
             <div class="detail-section-title" style="justify-content:space-between;">
@@ -466,6 +585,42 @@ async function openPersonDetail(id) {
       </div>
     </div>
   `;
+}
+
+function togglePersonAddTask(personId) {
+  const form = document.getElementById(`person-add-task-form-${personId}`);
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  if (form.style.display === 'block') document.getElementById(`person-task-text-${personId}`).focus();
+}
+
+async function submitPersonTask(personId) {
+  const textEl = document.getElementById(`person-task-text-${personId}`);
+  const dateEl = document.getElementById(`person-task-date-${personId}`);
+  const text = textEl.value.trim();
+  if (!text) { textEl.focus(); return; }
+  const btn = document.querySelector(`#person-add-task-form-${personId} .btn-primary`);
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  const task = await postPersonTask(personId, text, dateEl.value);
+  const due = dueDateLabel(task.due_date);
+  const newItem = document.createElement('div');
+  newItem.className = 'task-item';
+  newItem.id = `task-${task.id}`;
+  newItem.innerHTML = `
+    <div class="task-box" onclick="markTaskDone('${task.id}')"></div>
+    <div style="flex:1;">
+      <div class="task-text">${task.text}</div>
+      ${due ? `<div class="task-due ${due.cls}">${due.label}</div>` : ''}
+    </div>
+  `;
+  const list = document.getElementById(`person-tasks-list-${personId}`);
+  const emptyMini = list.querySelector('.empty-mini');
+  if (emptyMini) emptyMini.remove();
+  // Insert before done section if it exists
+  const doneToggle = document.getElementById(`done-tasks-toggle-person-${personId}`);
+  list.insertBefore(newItem, doneToggle || null);
+  textEl.value = ''; dateEl.value = '';
+  btn.textContent = 'Save'; btn.disabled = false;
+  togglePersonAddTask(personId);
 }
 
 function togglePersonAddNote(personId) {
@@ -666,20 +821,58 @@ async function submitNote(companyId) {
 async function markTaskDone(taskId) {
   const el = document.getElementById(`task-${taskId}`);
   if (!el) return;
-  // Optimistic UI
+  // Optimistic UI — style as done immediately
   el.style.opacity = '0.5';
   const box = el.querySelector('.task-box');
-  if (box) { box.style.background = '#7F77DD'; box.style.borderColor = '#7F77DD'; }
+  if (box) { box.style.background = '#7F77DD'; box.style.borderColor = '#7F77DD'; box.style.cursor = 'default'; box.onclick = null; }
   const textEl = el.querySelector('.task-text');
-  if (textEl) textEl.style.textDecoration = 'line-through';
+  if (textEl) { textEl.style.textDecoration = 'line-through'; textEl.style.color = '#a09e97'; }
+
   try {
     await patchTaskDone(taskId);
-    setTimeout(() => el.remove(), 600);
+    // Find the parent tasks-list and look for / create a done section
+    const tasksList = el.closest('[id^="tasks-list-"]');
+    if (tasksList) {
+      const scopeId = tasksList.id.replace('tasks-list-', '');
+      let doneToggle = document.getElementById(`done-tasks-toggle-${scopeId}`);
+      if (!doneToggle) {
+        // Create collapsed done section
+        doneToggle = document.createElement('div');
+        doneToggle.id = `done-tasks-toggle-${scopeId}`;
+        doneToggle.style.marginTop = '8px';
+        doneToggle.innerHTML = `
+          <button onclick="toggleDoneTasks('${scopeId}')" style="font-size:11px;color:#a09e97;background:none;border:none;cursor:pointer;padding:2px 0;display:flex;align-items:center;gap:4px;">
+            <i class="ti ti-chevron-right" id="done-chevron-${scopeId}"></i> <span id="done-count-${scopeId}">0</span> completed
+          </button>
+          <div id="done-list-${scopeId}" style="display:none;margin-top:6px;"></div>
+        `;
+        tasksList.appendChild(doneToggle);
+      }
+      const doneList = document.getElementById(`done-list-${scopeId}`);
+      const doneCountEl = document.getElementById(`done-count-${scopeId}`);
+      // Move the element into the done list
+      el.remove();
+      doneList.appendChild(el);
+      if (doneCountEl) doneCountEl.textContent = doneList.children.length;
+      // If pending list is now empty, add empty-mini
+      const pendingItems = tasksList.querySelectorAll('.task-item:not([style*="done"])');
+      const hasPending = Array.from(tasksList.children).some(
+        ch => ch.classList.contains('task-item') && ch !== el
+      );
+      // If no more pending tasks visible outside done section
+      const nonDoneItems = tasksList.querySelectorAll(':scope > .task-item');
+      if (nonDoneItems.length === 0 && !tasksList.querySelector(':scope > .empty-mini')) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-mini';
+        empty.textContent = 'No open tasks.';
+        tasksList.insertBefore(empty, doneToggle);
+      }
+    }
   } catch(e) {
     // Revert on failure
     el.style.opacity = '1';
-    if (box) { box.style.background = ''; box.style.borderColor = ''; }
-    if (textEl) textEl.style.textDecoration = '';
+    if (box) { box.style.background = ''; box.style.borderColor = ''; box.style.cursor = 'pointer'; box.onclick = () => markTaskDone(taskId); }
+    if (textEl) { textEl.style.textDecoration = ''; textEl.style.color = ''; }
   }
 }
 
