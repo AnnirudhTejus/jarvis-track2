@@ -334,8 +334,8 @@ async function openCompanyDetail(id) {
       `).join('')
     : '<div class="empty-mini">No contacts yet.</div>';
 
-  const pendingTasks = details.tasks.filter(t => t.status !== 'done');
-  const doneTasks = details.tasks.filter(t => t.status === 'done');
+  const pendingTasks = (details.tasks || []).filter(t => t.status !== 'done');
+  const doneTasks = (details.tasks || []).filter(t => t.status === 'done');
 
   const pendingTasksHtml = pendingTasks.map(t => taskItemHtml(t)).join('') || '<div class="empty-mini">No open tasks.</div>';
   const doneTasksHtml = doneTasks.length

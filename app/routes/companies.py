@@ -210,7 +210,8 @@ def change_stage(company_id: str, body: StageIn):
 @router.get("/people/{person_id}")
 def get_person_detail(person_id: str):
     def q_person():
-        return supabase.table("people").select("*").eq("id", person_id).single().execute()
+        r = supabase.table("people").select("*").eq("id", person_id).execute()
+        return r.data[0] if r.data else None
     def q_history():
         return supabase.table("person_company_history").select("*, companies(*)").eq("person_id", person_id).order("from_date", desc=True).execute()
     def q_notes():
@@ -233,9 +234,13 @@ def get_person_detail(person_id: str):
     activities = f_activities.result()
     tasks      = f_tasks.result()
 
+    if not person:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Person not found")
+
     current = next((r for r in history.data if r.get("is_current")), None)
     return {
-        "person": person.data,
+        "person": person,
         "current_role": current.get("role") if current else None,
         "current_company": current.get("companies") if current else None,
         "history": history.data,
