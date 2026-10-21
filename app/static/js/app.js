@@ -321,7 +321,7 @@ async function openCompanyDetail(id) {
 
   const peopleHtml = details.people.length
     ? details.people.map(p => `
-        <div class="person-row">
+        <div class="person-row" onclick="openPersonDetail('${p.id}')" style="cursor:pointer;" onmouseover="this.style.background='#f5f4f0'" onmouseout="this.style.background=''">
           <div class="p-avatar av-purple">${getInitials(p.full_name)}</div>
           <div style="flex:1;">
             <div class="p-name">${p.full_name}</div>
@@ -329,6 +329,7 @@ async function openCompanyDetail(id) {
           </div>
           ${p.email ? `<a href="mailto:${p.email}" onclick="event.stopPropagation();" class="icon-link"><i class="ti ti-mail"></i></a>` : ''}
           ${p.phone ? `<a href="tel:${p.phone}" onclick="event.stopPropagation();" class="icon-link"><i class="ti ti-phone"></i></a>` : ''}
+          <i class="ti ti-chevron-right" style="color:#c8c6be;font-size:14px;margin-left:4px;"></i>
         </div>
       `).join('')
     : '<div class="empty-mini">No contacts yet.</div>';
@@ -399,7 +400,7 @@ async function openCompanyDetail(id) {
 
           <!-- People -->
           <div class="detail-section">
-            <div class="detail-section-title"><i class="ti ti-users"></i> People</div>
+            <div class="detail-section-title"><i class="ti ti-users"></i> Contacts</div>
             <div>${peopleHtml}</div>
           </div>
 
@@ -414,24 +415,18 @@ async function openCompanyDetail(id) {
         <!-- Right column -->
         <div class="detail-col-side">
 
-          <!-- Tasks -->
+          <!-- Company info -->
           <div class="detail-section">
-            <div class="detail-section-title" style="justify-content:space-between;">
-              <span><i class="ti ti-checkbox"></i> Tasks</span>
-              <button class="add-inline-btn" onclick="toggleAddTask('${c.id}')"><i class="ti ti-plus"></i> Add</button>
-            </div>
-            <div id="tasks-list-${c.id}">${pendingTasksHtml}${doneTasksHtml}</div>
-            <div id="add-task-form-${c.id}" style="display:none;" class="inline-form">
-              <input type="text" id="task-text-${c.id}" placeholder="Task description…" class="inline-input"/>
-              <input type="date" id="task-date-${c.id}" class="inline-input" style="margin-top:6px;"/>
-              <div style="display:flex;gap:6px;margin-top:8px;">
-                <button class="btn btn-primary" style="flex:1;padding:7px;" onclick="submitTask('${c.id}')">Save</button>
-                <button class="btn btn-secondary" onclick="toggleAddTask('${c.id}')">Cancel</button>
-              </div>
+            <div class="detail-section-title"><i class="ti ti-building"></i> About</div>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px;">
+              ${c.industry ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-tag" style="color:#a09e97;font-size:14px;"></i><span style="font-size:13px;color:#444441;">${c.industry}</span></div>` : ''}
+              ${c.location ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-map-pin" style="color:#a09e97;font-size:14px;"></i><span style="font-size:13px;color:#444441;">${c.location}</span></div>` : ''}
+              ${c.website ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-world" style="color:#a09e97;font-size:14px;"></i><a href="${c.website}" target="_blank" style="font-size:13px;color:#7F77DD;text-decoration:none;">${c.website.replace(/^https?:\/\//, '')}</a></div>` : ''}
+              ${!c.industry && !c.location && !c.website ? '<div class="empty-mini">No details on file.</div>' : ''}
             </div>
           </div>
 
-          <!-- Notes -->
+          <!-- Notes (company-level) -->
           <div class="detail-section">
             <div class="detail-section-title" style="justify-content:space-between;">
               <span><i class="ti ti-notes"></i> Notes</span>
@@ -517,18 +512,23 @@ async function openPersonDetail(id) {
           ${companyHtml}
         </div>
         <div style="display:flex;gap:8px;">
-          ${p.email ? `<a href="mailto:${p.email}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;"><i class="ti ti-mail"></i></a>` : ''}
-          ${p.phone ? `<a href="tel:${p.phone}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;"><i class="ti ti-phone"></i></a>` : ''}
+          ${p.email ? `<a href="mailto:${p.email}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;" title="${p.email}"><i class="ti ti-mail"></i></a>` : ''}
+          ${p.phone ? `<a href="tel:${p.phone}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;" title="${p.phone}"><i class="ti ti-phone"></i></a>` : ''}
           ${p.linkedin ? `<a href="${p.linkedin}" target="_blank" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;"><i class="ti ti-brand-linkedin"></i></a>` : ''}
         </div>
       </div>
 
       <div class="detail-page-body">
         <div class="detail-col-main">
-          <!-- Employment history -->
+          <!-- Contact details -->
           <div class="detail-section">
-            <div class="detail-section-title"><i class="ti ti-briefcase"></i> Employment history</div>
-            ${historyHtml}
+            <div class="detail-section-title"><i class="ti ti-id-badge"></i> Contact details</div>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px;">
+              ${p.email ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-mail" style="color:#a09e97;font-size:14px;width:16px;"></i><a href="mailto:${p.email}" style="font-size:13px;color:#7F77DD;text-decoration:none;">${p.email}</a></div>` : ''}
+              ${p.phone ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-phone" style="color:#a09e97;font-size:14px;width:16px;"></i><a href="tel:${p.phone}" style="font-size:13px;color:#444441;text-decoration:none;">${p.phone}</a></div>` : ''}
+              ${p.linkedin ? `<div style="display:flex;gap:8px;align-items:center;"><i class="ti ti-brand-linkedin" style="color:#a09e97;font-size:14px;width:16px;"></i><a href="${p.linkedin}" target="_blank" style="font-size:13px;color:#7F77DD;text-decoration:none;">LinkedIn profile</a></div>` : ''}
+              ${!p.email && !p.phone && !p.linkedin ? '<div class="empty-mini">No contact details on file.</div>' : ''}
+            </div>
           </div>
           <!-- Activity -->
           <div class="detail-section">
