@@ -50,6 +50,43 @@ async function postNote(company_id, content) {
   return await res.json();
 }
 
+async function patchTaskDone(task_id) {
+  const res = await fetch(`/api/tasks/${task_id}/done`, { method: 'PATCH' });
+  return await res.json();
+}
+
+async function fetchPersonDetails(id) {
+  const res = await fetch(`/api/people/${id}`);
+  return await res.json();
+}
+
+async function postPersonNote(person_id, content) {
+  const res = await fetch(`/api/people/${person_id}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ person_id, content })
+  });
+  return await res.json();
+}
+
+async function postCompany(data) {
+  const res = await fetch('/api/companies', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  return await res.json();
+}
+
+async function postPerson(data) {
+  const res = await fetch('/api/people', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  return await res.json();
+}
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 const STAGE_ORDER = ['Funnel', 'Pipeline', 'Prospect', 'Lead', 'Client'];
 
@@ -329,7 +366,219 @@ function goBack() {
   selectedId = null;
   if (currentView === 'dashboard') renderDashboard();
   else if (currentView === 'companies') renderCompanies();
+  else if (currentView === 'people') renderPeople();
   else renderDashboard();
+}
+
+// ─── Person detail page ───────────────────────────────────────────────────────
+async function openPersonDetail(id) {
+  const content = document.getElementById('main-content');
+  content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
+
+  const details = await fetchPersonDetails(id);
+  const p = details.person;
+
+  const companyHtml = details.current_company
+    ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+         <div class="company-avatar ${details.current_company.avatar_color}" style="width:22px;height:22px;font-size:10px;border-radius:5px;">${details.current_company.initials}</div>
+         <span style="font-size:13px;color:#444441;">${details.current_company.name}</span>
+         ${details.current_role ? `<span style="font-size:12px;color:#a09e97;">· ${details.current_role}</span>` : ''}
+       </div>`
+    : '<div style="font-size:13px;color:#a09e97;margin-top:4px;">No company on record</div>';
+
+  const historyHtml = details.history.length
+    ? details.history.map(h => `
+        <div class="tl-item">
+          <div class="tl-dot" style="background:${h.is_current ? '#7F77DD' : '#c8c6be'};"></div>
+          <div>
+            <div class="tl-text">${h.companies?.name || 'Unknown'} — ${h.role || 'No role'}</div>
+            <div class="tl-date">${h.is_current ? 'Current' : (h.from_date ? new Date(h.from_date).getFullYear() : '')}</div>
+          </div>
+        </div>
+      `).join('')
+    : '<div class="empty-mini">No history.</div>';
+
+  const notesHtml = details.notes.map(n => `
+    <div class="note-box">
+      <div class="note-content">${n.content}</div>
+      <div class="note-date">${timeAgo(n.created_at)}</div>
+    </div>
+  `).join('') || '<div class="empty-mini">No notes yet.</div>';
+
+  const activitiesHtml = details.activities.map(a => `
+    <div class="tl-item">
+      <div class="tl-dot" style="background:${a.color || '#c8c6be'};"></div>
+      <div>
+        <div class="tl-text">${a.text}</div>
+        <div class="tl-date">${timeAgo(a.activity_date)}</div>
+      </div>
+    </div>
+  `).join('') || '<div class="empty-mini">No activity yet.</div>';
+
+  content.innerHTML = `
+    <div class="detail-page">
+      <button class="back-btn" onclick="goBack()"><i class="ti ti-arrow-left"></i> Back</button>
+
+      <div class="detail-page-header">
+        <div class="p-avatar av-purple" style="width:48px;height:48px;font-size:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;">${getInitials(p.full_name)}</div>
+        <div style="flex:1;">
+          <div style="font-size:20px;font-weight:700;color:#2c2c2a;">${p.full_name}</div>
+          ${companyHtml}
+        </div>
+        <div style="display:flex;gap:8px;">
+          ${p.email ? `<a href="mailto:${p.email}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;"><i class="ti ti-mail"></i></a>` : ''}
+          ${p.phone ? `<a href="tel:${p.phone}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;"><i class="ti ti-phone"></i></a>` : ''}
+          ${p.linkedin ? `<a href="${p.linkedin}" target="_blank" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;"><i class="ti ti-brand-linkedin"></i></a>` : ''}
+        </div>
+      </div>
+
+      <div class="detail-page-body">
+        <div class="detail-col-main">
+          <!-- Employment history -->
+          <div class="detail-section">
+            <div class="detail-section-title"><i class="ti ti-briefcase"></i> Employment history</div>
+            ${historyHtml}
+          </div>
+          <!-- Activity -->
+          <div class="detail-section">
+            <div class="detail-section-title"><i class="ti ti-activity"></i> Activity</div>
+            ${activitiesHtml}
+          </div>
+        </div>
+
+        <div class="detail-col-side">
+          <!-- Notes -->
+          <div class="detail-section">
+            <div class="detail-section-title" style="justify-content:space-between;">
+              <span><i class="ti ti-notes"></i> Notes</span>
+              <button class="add-inline-btn" onclick="togglePersonAddNote('${p.id}')"><i class="ti ti-plus"></i> Add</button>
+            </div>
+            <div id="person-notes-list-${p.id}">${notesHtml}</div>
+            <div id="person-add-note-form-${p.id}" style="display:none;" class="inline-form">
+              <textarea id="person-note-text-${p.id}" placeholder="Write a note…" class="inline-input" rows="4" style="resize:vertical;"></textarea>
+              <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn btn-primary" style="flex:1;padding:7px;" onclick="submitPersonNote('${p.id}')">Save</button>
+                <button class="btn btn-secondary" onclick="togglePersonAddNote('${p.id}')">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function togglePersonAddNote(personId) {
+  const form = document.getElementById(`person-add-note-form-${personId}`);
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  if (form.style.display === 'block') document.getElementById(`person-note-text-${personId}`).focus();
+}
+
+async function submitPersonNote(personId) {
+  const textEl = document.getElementById(`person-note-text-${personId}`);
+  const content = textEl.value.trim();
+  if (!content) { textEl.focus(); return; }
+  const btn = document.querySelector(`#person-add-note-form-${personId} .btn-primary`);
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  const note = await postPersonNote(personId, content);
+  const newNote = document.createElement('div');
+  newNote.className = 'note-box';
+  newNote.innerHTML = `<div class="note-content">${note.content}</div><div class="note-date">Just now</div>`;
+  const list = document.getElementById(`person-notes-list-${personId}`);
+  const empty = list.querySelector('.empty-mini');
+  if (empty) empty.remove();
+  list.insertBefore(newNote, list.firstChild);
+  textEl.value = ''; btn.textContent = 'Save'; btn.disabled = false;
+  togglePersonAddNote(personId);
+}
+
+// ─── Modal helpers ────────────────────────────────────────────────────────────
+function showModal(html) {
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  overlay.innerHTML = `<div style="background:#fff;border-radius:16px;padding:28px;width:440px;max-width:95vw;box-shadow:0 8px 40px rgba(0,0,0,0.18);">${html}</div>`;
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+  document.body.appendChild(overlay);
+}
+
+function closeModal() {
+  const el = document.getElementById('modal-overlay');
+  if (el) el.remove();
+}
+
+function showAddCompanyModal() {
+  showModal(`
+    <div style="font-size:17px;font-weight:700;margin-bottom:18px;">Add company</div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <input id="mc-name" class="inline-input" placeholder="Company name *" autofocus/>
+      <input id="mc-industry" class="inline-input" placeholder="Industry"/>
+      <input id="mc-location" class="inline-input" placeholder="Location"/>
+      <input id="mc-website" class="inline-input" placeholder="Website"/>
+      <select id="mc-stage" class="inline-input">
+        ${['Funnel','Pipeline','Prospect','Lead','Client'].map(s => `<option value="${s}">${s}</option>`).join('')}
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:18px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="submitAddCompany()">Add company</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+
+async function submitAddCompany() {
+  const name = document.getElementById('mc-name').value.trim();
+  if (!name) { document.getElementById('mc-name').focus(); return; }
+  const btn = document.querySelector('#modal-overlay .btn-primary');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  await postCompany({
+    name,
+    industry: document.getElementById('mc-industry').value.trim() || null,
+    location: document.getElementById('mc-location').value.trim() || null,
+    website: document.getElementById('mc-website').value.trim() || null,
+    stage: document.getElementById('mc-stage').value,
+  });
+  closeModal();
+  if (currentView === 'dashboard') renderDashboard();
+  else if (currentView === 'companies') renderCompanies();
+}
+
+function showAddPersonModal() {
+  showModal(`
+    <div style="font-size:17px;font-weight:700;margin-bottom:18px;">Add person</div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <input id="mp-name" class="inline-input" placeholder="Full name *" autofocus/>
+      <input id="mp-email" class="inline-input" placeholder="Email"/>
+      <input id="mp-phone" class="inline-input" placeholder="Phone"/>
+      <input id="mp-linkedin" class="inline-input" placeholder="LinkedIn URL"/>
+      <input id="mp-role" class="inline-input" placeholder="Role/title"/>
+      <select id="mp-company" class="inline-input">
+        <option value="">No company</option>
+        ${companiesData.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:18px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="submitAddPerson()">Add person</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+
+async function submitAddPerson() {
+  const name = document.getElementById('mp-name').value.trim();
+  if (!name) { document.getElementById('mp-name').focus(); return; }
+  const btn = document.querySelector('#modal-overlay .btn-primary');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  await postPerson({
+    full_name: name,
+    email: document.getElementById('mp-email').value.trim() || null,
+    phone: document.getElementById('mp-phone').value.trim() || null,
+    linkedin: document.getElementById('mp-linkedin').value.trim() || null,
+    role: document.getElementById('mp-role').value.trim() || null,
+    company_id: document.getElementById('mp-company').value || null,
+  });
+  closeModal();
+  if (currentView === 'people') renderPeople();
 }
 
 // ─── Inline add forms ─────────────────────────────────────────────────────────
@@ -414,12 +663,24 @@ async function submitNote(companyId) {
   toggleAddNote(companyId);
 }
 
-function markTaskDone(taskId) {
+async function markTaskDone(taskId) {
   const el = document.getElementById(`task-${taskId}`);
   if (!el) return;
-  el.style.opacity = '0.4';
-  el.style.textDecoration = 'line-through';
-  // TODO: PATCH /api/tasks/:id  status=done
+  // Optimistic UI
+  el.style.opacity = '0.5';
+  const box = el.querySelector('.task-box');
+  if (box) { box.style.background = '#7F77DD'; box.style.borderColor = '#7F77DD'; }
+  const textEl = el.querySelector('.task-text');
+  if (textEl) textEl.style.textDecoration = 'line-through';
+  try {
+    await patchTaskDone(taskId);
+    setTimeout(() => el.remove(), 600);
+  } catch(e) {
+    // Revert on failure
+    el.style.opacity = '1';
+    if (box) { box.style.background = ''; box.style.borderColor = ''; }
+    if (textEl) textEl.style.textDecoration = '';
+  }
 }
 
 // ─── Companies list ───────────────────────────────────────────────────────────
@@ -451,7 +712,7 @@ async function renderPeople() {
   currentView = 'people';
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
-  const records = await fetchPeople();
+  const [records] = await Promise.all([fetchPeople(), companiesData.length ? Promise.resolve() : fetchCompanies()]);
 
   const toggleBtns = `
     <div style="display:flex;gap:6px;margin-bottom:14px;justify-content:flex-end;">
@@ -473,7 +734,7 @@ async function renderPeople() {
         ${['Name','Company','Email','Phone','Role'].map(h=>`<div style="font-size:11px;font-weight:600;color:#a09e97;text-transform:uppercase;letter-spacing:0.4px;">${h}</div>`).join('')}
       </div>
       ${records.map((r,i) => `
-        <div onclick="openCompanyDetail('${r.company_id}')" style="display:grid;grid-template-columns:2fr 1.5fr 2fr 1.5fr 1fr;padding:12px 16px;border-bottom:${i<records.length-1?'1px solid #f0ede6':'none'};cursor:pointer;transition:background 0.1s;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='transparent'">
+        <div onclick="openPersonDetail('${r.people.id}')" style="display:grid;grid-template-columns:2fr 1.5fr 2fr 1.5fr 1fr;padding:12px 16px;border-bottom:${i<records.length-1?'1px solid #f0ede6':'none'};cursor:pointer;transition:background 0.1s;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='transparent'">
           <div style="display:flex;align-items:center;gap:9px;">
             <div class="p-avatar av-purple" style="width:30px;height:30px;font-size:11px;">${getInitials(r.people.full_name)}</div>
             <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${r.people.full_name}</div>
@@ -493,7 +754,7 @@ async function renderPeople() {
   const cardHtml = `
     <div class="cards-grid">
       ${records.map(r => `
-        <div class="company-card" onclick="openCompanyDetail('${r.company_id}')">
+        <div class="company-card" onclick="openPersonDetail('${r.people.id}')">
           <div class="card-top">
             <div class="company-avatar av-purple">${getInitials(r.people.full_name)}</div>
             <span class="stage-pill s-new">Contact</span>
@@ -555,6 +816,11 @@ function switchView(view) {
   document.getElementById('topbar-title').textContent = view.charAt(0).toUpperCase() + view.slice(1);
   const addLabels = { dashboard: 'Add item', companies: 'Add company', people: 'Add person', opportunities: 'Add opportunity', tasks: 'Add task', notes: 'Add note' };
   document.getElementById('add-btn').textContent = '+ ' + (addLabels[view] || 'Add');
+  document.getElementById('add-btn').onclick = () => {
+    if (view === 'companies') showAddCompanyModal();
+    else if (view === 'people') showAddPersonModal();
+    else if (view === 'dashboard') showAddCompanyModal();
+  };
   selectedId = null;
 
   if (view === 'dashboard') renderDashboard();

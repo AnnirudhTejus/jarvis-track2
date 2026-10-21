@@ -134,3 +134,129 @@ def create_note(body: NoteIn):
     }
     result = supabase.table("notes").insert(row).execute()
     return result.data[0] if result.data else row
+
+
+# ── Task completion ────────────────────────────────────────────────────────────
+
+@router.patch("/tasks/{task_id}/done")
+def complete_task(task_id: str):
+    result = supabase.table("tasks").update({"status": "done"}).eq("id", task_id).execute()
+    return result.data[0] if result.data else {"id": task_id, "status": "done"}
+
+
+# ── Person detail ──────────────────────────────────────────────────────────────
+
+@router.get("/people/{person_id}")
+def get_person_detail(person_id: str):
+    person = supabase.table("people").select("*").eq("id", person_id).single().execute()
+    history = supabase.table("person_company_history").select("*, companies(*)").eq("person_id", person_id).order("from_date", desc=True).execute()
+    notes = supabase.table("notes").select("*").eq("person_id", person_id).order("created_at", desc=True).execute()
+    activities = supabase.table("activities").select("*").eq("person_id", person_id).order("activity_date", desc=True).execute()
+    current = next((r for r in history.data if r.get("is_current")), None)
+    return {
+        "person": person.data,
+        "current_role": current.get("role") if current else None,
+        "current_company": current.get("companies") if current else None,
+        "history": history.data,
+        "notes": notes.data,
+        "activities": activities.data,
+    }
+
+
+# ── Person note ────────────────────────────────────────────────────────────────
+
+class PersonNoteIn(BaseModel):
+    person_id: str
+    content: str
+
+@router.post("/people/{person_id}/notes")
+def create_person_note(person_id: str, body: PersonNoteIn):
+    row = {
+        "id": str(uuid.uuid4()),
+        "person_id": person_id,
+        "content": body.content,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    result = supabase.table("notes").insert(row).execute()
+    return result.data[0] if result.data else row
+
+
+# ── Add company ────────────────────────────────────────────────────────────────
+
+class CompanyIn(BaseModel):
+    name: str
+    industry: Optional[str] = None
+    location: Optional[str] = None
+    website: Optional[str] = None
+    stage: Optional[str] = "Funnel"
+
+@router.post("/companies")
+def create_company(body: CompanyIn):
+    import re
+    words = [w for w in re.split(r'\s+', body.name) if w]
+    initials = ''.join(w[0] for w in words[:2]).upper()
+    colors = ["av-purple", "av-teal", "av-amber", "av-blue"]
+    avatar_color = colors[len(body.name) % len(colors)]
+
+    company_row = {
+        "id": str(uuid.uuid4()),
+        "name": body.name,
+        "industry": body.industry,
+        "location": body.location,
+        "website": body.website,
+        "initials": initials,
+        "avatar_color": avatar_color,
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    company_result = supabase.table("companies").insert(company_row).execute()
+    company = company_result.data[0] if company_result.data else company_row
+
+    engagement_row = {
+        "id": str(uuid.uuid4()),
+        "company_id": company["id"],
+        "stage": body.stage,
+        "status": "active",
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    supabase.table("engagements").insert(engagement_row).execute()
+    return company
+
+
+# ── Add person ─────────────────────────────────────────────────────────────────
+
+class PersonIn(BaseModel):
+    full_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin: Optional[str] = None
+    company_id: Optional[str] = None
+    role: Optional[str] = None
+
+@router.post("/people")
+def create_person(body: PersonIn):
+    person_row = {
+        "id": str(uuid.uuid4()),
+        "full_name": body.full_name,
+        "email": body.email,
+        "phone": body.phone,
+        "linkedin": body.linkedin,
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    person_result = supabase.table("people").insert(person_row).execute()
+    person = person_result.data[0] if person_result.data else person_row
+
+    if body.company_id:
+        history_row = {
+            "id": str(uuid.uuid4()),
+            "person_id": person["id"],
+            "company_id": body.company_id,
+            "role": body.role,
+            "is_current": True,
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        supabase.table("person_company_history").insert(history_row).execute()
+
+    return person
