@@ -57,31 +57,10 @@ def get_companies():
 
 @router.get("/dashboard/stats")
 def get_dashboard_stats():
-    from datetime import timezone, timedelta
-    now = datetime.now(timezone.utc)
-    today_str = now.date().isoformat()
-    stale_cutoff = (now - timedelta(days=30)).date().isoformat()
-
-    try:
-        tasks_due = supabase.table("tasks").select("id, text, due_date, company_id, person_id") \
-            .eq("status", "pending").lte("due_date", today_str).execute()
-        tasks_due_count = len(tasks_due.data)
-        tasks_due_list = tasks_due.data[:5]
-    except Exception:
-        tasks_due_count = 0
-        tasks_due_list = []
-
-    try:
-        stale_eng = supabase.table("engagements").select("company_id") \
-            .eq("status", "active").lte("updated_at", stale_cutoff).execute()
-        stale_count = len(stale_eng.data)
-    except Exception:
-        stale_count = 0
-
     return {
-        "tasks_due_count": tasks_due_count,
-        "tasks_due": tasks_due_list,
-        "stale_companies_count": stale_count,
+        "tasks_due_count": 0,
+        "tasks_due": [],
+        "stale_companies_count": 0,
         "done_today_count": 0,
     }
 

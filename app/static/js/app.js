@@ -74,8 +74,13 @@ async function postPersonTask(person_id, text, due_date) {
 }
 
 async function fetchDashboardStats() {
-  const res = await fetch('/api/dashboard/stats');
-  return await res.json();
+  try {
+    const res = await fetch('/api/dashboard/stats');
+    if (!res.ok) return { tasks_due_count: 0, tasks_due: [], stale_companies_count: 0, done_today_count: 0 };
+    return await res.json();
+  } catch(e) {
+    return { tasks_due_count: 0, tasks_due: [], stale_companies_count: 0, done_today_count: 0 };
+  }
 }
 
 async function fetchPersonDetails(id) {
