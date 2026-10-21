@@ -321,7 +321,7 @@ async function openCompanyDetail(id) {
 
   const peopleHtml = details.people.length
     ? details.people.map(p => `
-        <div class="person-row" onclick="openPersonDetail('${p.id}')" style="cursor:pointer;" onmouseover="this.style.background='#f5f4f0'" onmouseout="this.style.background=''">
+        <div class="person-row clickable-row" onclick="openPersonDetail('${p.id}')">
           <div class="p-avatar av-purple">${getInitials(p.full_name)}</div>
           <div style="flex:1;">
             <div class="p-name">${p.full_name}</div>
