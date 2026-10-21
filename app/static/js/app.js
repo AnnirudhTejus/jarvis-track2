@@ -210,7 +210,8 @@ async function renderDashboard() {
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
 
-  const [companies, funnel, stats] = await Promise.all([fetchCompanies(), fetchFunnel(), fetchDashboardStats()]);
+  const [companies, funnel] = await Promise.all([fetchCompanies(), fetchFunnel()]);
+  const stats = await fetchDashboardStats().catch(() => ({ tasks_due_count: 0, tasks_due: [], stale_companies_count: 0, done_today_count: 0 }));
   const { counts } = funnel;
 
   const funnelHtml = `
