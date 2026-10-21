@@ -1,12 +1,20 @@
+// ─── State ────────────────────────────────────────────────────────────────────
 let selectedId = null;
 let peopleView = 'list';
 let companiesData = [];
+let currentView = 'dashboard';
+let activeFunnelStage = null;  // null = all
 
+// ─── API helpers ──────────────────────────────────────────────────────────────
 async function fetchCompanies() {
   const res = await fetch('/api/companies');
-  const companies = await res.json();
-  companiesData = companies;
-  return companies;
+  companiesData = await res.json();
+  return companiesData;
+}
+
+async function fetchFunnel() {
+  const res = await fetch('/api/dashboard/funnel');
+  return await res.json();
 }
 
 async function fetchCompanyDetails(id) {
@@ -24,12 +32,41 @@ async function fetchTasks() {
   return await res.json();
 }
 
-function getStageClass(stage) {
-  const map = { 'Proposal sent': 's-proposal', 'In conversation': 's-active', 'Gone cold': 's-cold', 'New lead': 's-new', 'Follow up needed': 's-cold', 'Closed won': 's-active', 'Closed lost': 's-cold' };
-  return map[stage] || 's-new';
+async function postTask(company_id, text, due_date) {
+  const res = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ company_id, text, due_date: due_date || null })
+  });
+  return await res.json();
+}
+
+async function postNote(company_id, content) {
+  const res = await fetch('/api/notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ company_id, content })
+  });
+  return await res.json();
+}
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+const STAGE_ORDER = ['Funnel', 'Pipeline', 'Prospect', 'Lead', 'Client'];
+
+const STAGE_COLORS = {
+  'Funnel':   { bg: '#EEF2FF', text: '#4338CA', dot: '#6366F1' },
+  'Pipeline': { bg: '#FAEEDA', text: '#854F0B', dot: '#F59E0B' },
+  'Prospect': { bg: '#E1F5EE', text: '#0F6E56', dot: '#10B981' },
+  'Lead':     { bg: '#F0EFFE', text: '#534AB7', dot: '#7F77DD' },
+  'Client':   { bg: '#ECFDF5', text: '#065F46', dot: '#059669' },
+};
+
+function stageStyle(stage) {
+  return STAGE_COLORS[stage] || { bg: '#F1EFE8', text: '#5F5E5A', dot: '#a09e97' };
 }
 
 function getInitials(name) {
+  if (!name) return '?';
   return name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
 }
 
@@ -37,157 +74,406 @@ function timeAgo(dateStr) {
   if (!dateStr) return 'No contact';
   const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
   if (diff < 60) return 'Just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 172800) return 'Yesterday';
-  if (diff < 604800) return `${Math.floor(diff / 86400)} days ago`;
-  if (diff < 2592000) return `${Math.floor(diff / 604800)} weeks ago`;
-  return `${Math.floor(diff / 2592000)} months ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 2592000) return `${Math.floor(diff / 604800)}w ago`;
+  return `${Math.floor(diff / 2592000)}mo ago`;
 }
 
-async function renderCompanies() {
+function dueDateLabel(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffDays = Math.floor((d - now) / 86400000);
+  if (diffDays < 0) return { label: 'Overdue', cls: 'due-overdue' };
+  if (diffDays === 0) return { label: 'Due today', cls: 'due-today' };
+  if (diffDays === 1) return { label: 'Due tomorrow', cls: 'due-soon' };
+  if (diffDays <= 7) return { label: `Due in ${diffDays}d`, cls: 'due-soon' };
+  return { label: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), cls: 'due-later' };
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+async function renderDashboard() {
+  currentView = 'dashboard';
   const content = document.getElementById('main-content');
-  content.innerHTML = '<div class="empty-state"><i class="ti ti-loader"></i><p>Loading...</p></div>';
+  content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
+
+  const [companies, funnel] = await Promise.all([fetchCompanies(), fetchFunnel()]);
+  const { counts } = funnel;
+
+  const funnelHtml = `
+    <div class="funnel-row">
+      ${STAGE_ORDER.map(stage => {
+        const s = stageStyle(stage);
+        const n = counts[stage] || 0;
+        const active = activeFunnelStage === stage;
+        return `
+          <div class="funnel-tile ${active ? 'funnel-tile-active' : ''}"
+               style="--stage-bg:${s.bg};--stage-text:${s.text};--stage-dot:${s.dot};"
+               onclick="filterByStage('${stage}')">
+            <div class="funnel-dot"></div>
+            <div class="funnel-stage">${stage}</div>
+            <div class="funnel-count">${n}</div>
+            <div class="funnel-label">compan${n === 1 ? 'y' : 'ies'}</div>
+          </div>
+        `;
+      }).join('<div class="funnel-arrow"><i class="ti ti-chevron-right"></i></div>')}
+    </div>
+  `;
+
+  const filtered = activeFunnelStage
+    ? companies.filter(c => c.stage === activeFunnelStage)
+    : companies;
+
+  const urgent = companies.filter(c => c.ai_class === 'ai-urgent');
+  const totalClient = counts['Client'] || 0;
+
+  const summaryHtml = `
+    <div class="stats-row" style="margin-top:18px;">
+      <div class="stat-card">
+        <div class="stat-label">Total companies</div>
+        <div class="stat-value">${companies.length}</div>
+        <div class="stat-sub up">In database</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Clients</div>
+        <div class="stat-value">${totalClient}</div>
+        <div class="stat-sub up">Active clients</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Need follow up</div>
+        <div class="stat-value">${urgent.length}</div>
+        <div class="stat-sub" style="color:#A32D2D;">Flagged by Jarvis</div>
+      </div>
+    </div>
+  `;
+
+  const stageLabel = activeFunnelStage
+    ? `<div class="section-label" style="display:flex;align-items:center;gap:8px;">
+         ${activeFunnelStage} <button class="clear-filter" onclick="filterByStage(null)"><i class="ti ti-x"></i> Clear</button>
+       </div>`
+    : `<div class="section-label">All companies</div>`;
+
+  const cardsHtml = filtered.length === 0
+    ? `<div class="empty-state" style="height:200px;"><i class="ti ti-building-off"></i><p>No companies in this stage</p></div>`
+    : `<div class="cards-grid">${filtered.map(c => companyCardHtml(c, true)).join('')}</div>`;
+
+  content.innerHTML = funnelHtml + summaryHtml + stageLabel + cardsHtml;
+}
+
+function filterByStage(stage) {
+  activeFunnelStage = activeFunnelStage === stage ? null : stage;
+  renderDashboard();
+}
+
+// ─── Company card (shared) ────────────────────────────────────────────────────
+function companyCardHtml(c, fromDashboard = false) {
+  const s = stageStyle(c.stage);
+  return `
+    <div class="company-card ${c.id === selectedId ? 'selected' : ''}"
+         onclick="openCompanyDetail('${c.id}')">
+      <div class="card-top">
+        <div class="company-avatar ${c.avatar_color}">${c.initials}</div>
+        <span class="stage-pill" style="background:${s.bg};color:${s.text};">${c.stage}</span>
+      </div>
+      <div class="company-name">${c.name}</div>
+      <div class="company-meta">${c.industry || ''}${c.location ? ' · ' + c.location : ''}</div>
+      <div class="card-stats">
+        <span class="card-stat"><i class="ti ti-clock"></i> ${timeAgo(c.updated_at)}</span>
+      </div>
+      ${c.ai_tag
+        ? `<div class="ai-tag ${c.ai_class || 'ai-neutral'}"><i class="ti ti-robot"></i> ${c.ai_tag}</div>`
+        : `<div class="ai-tag ai-neutral"><i class="ti ti-robot"></i> No AI data yet</div>`
+      }
+    </div>
+  `;
+}
+
+// ─── Company detail page ──────────────────────────────────────────────────────
+async function openCompanyDetail(id) {
+  selectedId = id;
+  const content = document.getElementById('main-content');
+  content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
+
+  const details = await fetchCompanyDetails(id);
+  const c = details.company;
+  const s = stageStyle(details.stage);
+
+  const peopleHtml = details.people.length
+    ? details.people.map(p => `
+        <div class="person-row">
+          <div class="p-avatar av-purple">${getInitials(p.full_name)}</div>
+          <div style="flex:1;">
+            <div class="p-name">${p.full_name}</div>
+            <div class="p-role">${p.role || '—'}</div>
+          </div>
+          ${p.email ? `<a href="mailto:${p.email}" onclick="event.stopPropagation();" class="icon-link"><i class="ti ti-mail"></i></a>` : ''}
+          ${p.phone ? `<a href="tel:${p.phone}" onclick="event.stopPropagation();" class="icon-link"><i class="ti ti-phone"></i></a>` : ''}
+        </div>
+      `).join('')
+    : '<div class="empty-mini">No contacts yet.</div>';
+
+  const tasksHtml = details.tasks.map(t => {
+    const due = dueDateLabel(t.due_date);
+    return `
+      <div class="task-item" id="task-${t.id}">
+        <div class="task-box" onclick="markTaskDone('${t.id}')"></div>
+        <div style="flex:1;">
+          <div class="task-text">${t.text}</div>
+          ${due ? `<div class="task-due ${due.cls}">${due.label}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('') || '<div class="empty-mini">No tasks.</div>';
+
+  const notesHtml = details.notes.map(n => `
+    <div class="note-box">
+      <div class="note-content">${n.content}</div>
+      <div class="note-date">${timeAgo(n.created_at)}</div>
+    </div>
+  `).join('') || '<div class="empty-mini">No notes yet.</div>';
+
+  const activitiesHtml = details.activities.map(a => `
+    <div class="tl-item">
+      <div class="tl-dot" style="background:${a.color || '#c8c6be'};"></div>
+      <div>
+        <div class="tl-text">${a.text}</div>
+        <div class="tl-date">${timeAgo(a.activity_date)}</div>
+      </div>
+    </div>
+  `).join('') || '<div class="empty-mini">No activity yet.</div>';
+
+  content.innerHTML = `
+    <div class="detail-page">
+
+      <!-- Back nav -->
+      <button class="back-btn" onclick="goBack()">
+        <i class="ti ti-arrow-left"></i> Back
+      </button>
+
+      <!-- Header -->
+      <div class="detail-page-header">
+        <div class="detail-avatar ${c.avatar_color}" style="width:48px;height:48px;font-size:18px;border-radius:12px;">${c.initials}</div>
+        <div style="flex:1;">
+          <div style="font-size:20px;font-weight:700;color:#2c2c2a;">${c.name}</div>
+          <div style="font-size:13px;color:#73726c;margin-top:3px;">${c.industry || ''}${c.location ? ' · ' + c.location : ''}</div>
+        </div>
+        <span class="stage-pill-lg" style="background:${s.bg};color:${s.text};">${details.stage}</span>
+      </div>
+
+      <!-- Body: two-column -->
+      <div class="detail-page-body">
+
+        <!-- Left column -->
+        <div class="detail-col-main">
+
+          <!-- People -->
+          <div class="detail-section">
+            <div class="detail-section-title"><i class="ti ti-users"></i> People</div>
+            <div>${peopleHtml}</div>
+          </div>
+
+          <!-- Activity timeline -->
+          <div class="detail-section">
+            <div class="detail-section-title"><i class="ti ti-activity"></i> Activity</div>
+            <div>${activitiesHtml}</div>
+          </div>
+
+        </div>
+
+        <!-- Right column -->
+        <div class="detail-col-side">
+
+          <!-- Tasks -->
+          <div class="detail-section">
+            <div class="detail-section-title" style="justify-content:space-between;">
+              <span><i class="ti ti-checkbox"></i> Tasks</span>
+              <button class="add-inline-btn" onclick="toggleAddTask('${c.id}')"><i class="ti ti-plus"></i> Add</button>
+            </div>
+            <div id="tasks-list-${c.id}">${tasksHtml}</div>
+            <div id="add-task-form-${c.id}" style="display:none;" class="inline-form">
+              <input type="text" id="task-text-${c.id}" placeholder="Task description…" class="inline-input"/>
+              <input type="date" id="task-date-${c.id}" class="inline-input" style="margin-top:6px;"/>
+              <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn btn-primary" style="flex:1;padding:7px;" onclick="submitTask('${c.id}')">Save</button>
+                <button class="btn btn-secondary" onclick="toggleAddTask('${c.id}')">Cancel</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="detail-section">
+            <div class="detail-section-title" style="justify-content:space-between;">
+              <span><i class="ti ti-notes"></i> Notes</span>
+              <button class="add-inline-btn" onclick="toggleAddNote('${c.id}')"><i class="ti ti-plus"></i> Add</button>
+            </div>
+            <div id="notes-list-${c.id}">${notesHtml}</div>
+            <div id="add-note-form-${c.id}" style="display:none;" class="inline-form">
+              <textarea id="note-text-${c.id}" placeholder="Write a note…" class="inline-input" rows="4" style="resize:vertical;"></textarea>
+              <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn btn-primary" style="flex:1;padding:7px;" onclick="submitNote('${c.id}')">Save</button>
+                <button class="btn btn-secondary" onclick="toggleAddNote('${c.id}')">Cancel</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function goBack() {
+  selectedId = null;
+  if (currentView === 'dashboard') renderDashboard();
+  else if (currentView === 'companies') renderCompanies();
+  else renderDashboard();
+}
+
+// ─── Inline add forms ─────────────────────────────────────────────────────────
+function toggleAddTask(companyId) {
+  const form = document.getElementById(`add-task-form-${companyId}`);
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  if (form.style.display === 'block') {
+    document.getElementById(`task-text-${companyId}`).focus();
+  }
+}
+
+function toggleAddNote(companyId) {
+  const form = document.getElementById(`add-note-form-${companyId}`);
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  if (form.style.display === 'block') {
+    document.getElementById(`note-text-${companyId}`).focus();
+  }
+}
+
+async function submitTask(companyId) {
+  const textEl = document.getElementById(`task-text-${companyId}`);
+  const dateEl = document.getElementById(`task-date-${companyId}`);
+  const text = textEl.value.trim();
+  if (!text) { textEl.focus(); return; }
+
+  const btn = document.querySelector(`#add-task-form-${companyId} .btn-primary`);
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
+  const task = await postTask(companyId, text, dateEl.value);
+
+  const due = dueDateLabel(task.due_date);
+  const newItem = document.createElement('div');
+  newItem.className = 'task-item';
+  newItem.id = `task-${task.id}`;
+  newItem.innerHTML = `
+    <div class="task-box" onclick="markTaskDone('${task.id}')"></div>
+    <div style="flex:1;">
+      <div class="task-text">${task.text}</div>
+      ${due ? `<div class="task-due ${due.cls}">${due.label}</div>` : ''}
+    </div>
+  `;
+
+  const list = document.getElementById(`tasks-list-${companyId}`);
+  const emptyMini = list.querySelector('.empty-mini');
+  if (emptyMini) emptyMini.remove();
+  list.appendChild(newItem);
+
+  textEl.value = '';
+  dateEl.value = '';
+  btn.textContent = 'Save';
+  btn.disabled = false;
+  toggleAddTask(companyId);
+}
+
+async function submitNote(companyId) {
+  const textEl = document.getElementById(`note-text-${companyId}`);
+  const content = textEl.value.trim();
+  if (!content) { textEl.focus(); return; }
+
+  const btn = document.querySelector(`#add-note-form-${companyId} .btn-primary`);
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
+  const note = await postNote(companyId, content);
+
+  const newNote = document.createElement('div');
+  newNote.className = 'note-box';
+  newNote.innerHTML = `
+    <div class="note-content">${note.content}</div>
+    <div class="note-date">Just now</div>
+  `;
+
+  const list = document.getElementById(`notes-list-${companyId}`);
+  const emptyMini = list.querySelector('.empty-mini');
+  if (emptyMini) emptyMini.remove();
+  list.insertBefore(newNote, list.firstChild);
+
+  textEl.value = '';
+  btn.textContent = 'Save';
+  btn.disabled = false;
+  toggleAddNote(companyId);
+}
+
+function markTaskDone(taskId) {
+  const el = document.getElementById(`task-${taskId}`);
+  if (!el) return;
+  el.style.opacity = '0.4';
+  el.style.textDecoration = 'line-through';
+  // TODO: PATCH /api/tasks/:id  status=done
+}
+
+// ─── Companies list ───────────────────────────────────────────────────────────
+async function renderCompanies() {
+  currentView = 'companies';
+  const content = document.getElementById('main-content');
+  content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
   const companies = await fetchCompanies();
 
   const urgent = companies.filter(c => c.ai_class === 'ai-urgent').length;
-  const active = companies.filter(c => ['In conversation', 'Proposal sent'].includes(c.stage)).length;
+  const active = companies.filter(c => ['Pipeline', 'Prospect', 'Lead'].includes(c.stage)).length;
 
   content.innerHTML = `
     <div class="stats-row">
       <div class="stat-card"><div class="stat-label">Total companies</div><div class="stat-value">${companies.length}</div><div class="stat-sub up">In database</div></div>
-      <div class="stat-card"><div class="stat-label">Active discussions</div><div class="stat-value">${active}</div><div class="stat-sub">Proposals and conversations</div></div>
+      <div class="stat-card"><div class="stat-label">Active discussions</div><div class="stat-value">${active}</div><div class="stat-sub">Pipeline to Lead</div></div>
       <div class="stat-card"><div class="stat-label">Need follow up</div><div class="stat-value">${urgent}</div><div class="stat-sub" style="color:#A32D2D;">Urgent attention</div></div>
-      <div class="stat-card"><div class="stat-label">New leads</div><div class="stat-value">${companies.filter(c => c.stage === 'New lead').length}</div><div class="stat-sub">Recently discovered</div></div>
+      <div class="stat-card"><div class="stat-label">Funnel</div><div class="stat-value">${companies.filter(c => c.stage === 'Funnel').length}</div><div class="stat-sub">Top of funnel</div></div>
     </div>
     <div class="section-label">All companies</div>
     <div class="cards-grid">
-      ${companies.map(c => `
-        <div class="company-card ${c.id === selectedId ? 'selected' : ''}" onclick="selectCompany('${c.id}', this)">
-          <div class="card-top">
-            <div class="company-avatar ${c.avatar_color}">${c.initials}</div>
-            <span class="stage-pill ${getStageClass(c.stage)}">${c.stage || 'New lead'}</span>
-          </div>
-          <div class="company-name">${c.name}</div>
-          <div class="company-meta">${c.industry || ''} · ${c.location || ''}</div>
-          <div class="card-stats">
-            <span class="card-stat"><i class="ti ti-clock"></i> ${timeAgo(c.updated_at)}</span>
-          </div>
-          ${c.ai_tag ? `<div class="ai-tag ${c.ai_class || 'ai-neutral'}"><i class="ti ti-robot"></i> ${c.ai_tag}</div>` : '<div class="ai-tag ai-neutral"><i class="ti ti-robot"></i> No AI data yet</div>'}
-          <div class="card-divider"></div>
-          <div class="card-people"><span class="person-chip">${c.industry || 'Unknown'}</span></div>
-        </div>
-      `).join('')}
+      ${companies.map(c => companyCardHtml(c, false)).join('')}
     </div>
   `;
 }
 
-async function selectCompany(id, el) {
-  selectedId = id;
-  document.querySelectorAll('.company-card').forEach(e => e.classList.remove('selected'));
-  if (el) el.classList.add('selected');
-
-  const details = await fetchCompanyDetails(id);
-  const c = details.company;
-  const engagement = details.engagement;
-
-  document.getElementById('d-avatar').textContent = c.initials;
-  document.getElementById('d-avatar').className = 'detail-avatar ' + c.avatar_color;
-  document.getElementById('d-company').textContent = c.name;
-  document.getElementById('d-industry').textContent = (c.industry || '') + ' · ' + (c.location || '');
-
-  document.getElementById('d-people').innerHTML = details.people.length
-    ? details.people.map(p => `
-      <div class="person-row">
-        <div class="p-avatar av-purple">${getInitials(p.full_name)}</div>
-        <div><div class="p-name">${p.full_name}</div><div class="p-role">${p.role || ''}</div></div>
-      </div>
-    `).join('')
-    : '<div style="font-size:12px;color:#a09e97;">No contacts yet.</div>';
-
-  document.getElementById('d-tasks').innerHTML = details.tasks.length
-    ? details.tasks.map(t => `
-      <div class="task-item">
-        <div class="task-box"></div>
-        <div><div class="task-text">${t.text}</div><div class="task-due">${t.due_label || ''}</div></div>
-      </div>
-    `).join('')
-    : '<div style="font-size:12px;color:#a09e97;">No tasks yet.</div>';
-
-  document.getElementById('d-notes').innerHTML = details.notes.length
-    ? details.notes.map(n => `<div class="note-box">${n.content}</div>`).join('')
-    : '<div class="note-box" style="color:#a09e97;">No notes yet.</div>';
-
-  document.getElementById('d-timeline').innerHTML = details.activities.length
-    ? details.activities.map(a => `
-      <div class="tl-item">
-        <div class="tl-dot" style="background:${a.color};"></div>
-        <div><div class="tl-text">${a.text}</div><div class="tl-date">${timeAgo(a.activity_date)}</div></div>
-      </div>
-    `).join('')
-    : '<div style="font-size:12px;color:#a09e97;">No activity yet.</div>';
-}
-
-async function renderDashboard() {
-  const content = document.getElementById('main-content');
-  content.innerHTML = '<div class="empty-state"><i class="ti ti-loader"></i><p>Loading...</p></div>';
-  const companies = await fetchCompanies();
-  const urgent = companies.filter(c => c.ai_class === 'ai-urgent');
-
-  content.innerHTML = `
-    <div class="stats-row">
-      <div class="stat-card"><div class="stat-label">Total companies</div><div class="stat-value">${companies.length}</div><div class="stat-sub up">In pipeline</div></div>
-      <div class="stat-card"><div class="stat-label">Active discussions</div><div class="stat-value">${companies.filter(c => c.stage === 'In conversation').length}</div><div class="stat-sub">In conversation</div></div>
-      <div class="stat-card"><div class="stat-label">Proposals sent</div><div class="stat-value">${companies.filter(c => c.stage === 'Proposal sent').length}</div><div class="stat-sub">Awaiting response</div></div>
-      <div class="stat-card"><div class="stat-label">Need follow up</div><div class="stat-value">${urgent.length}</div><div class="stat-sub" style="color:#A32D2D;">Action needed</div></div>
-    </div>
-    <div class="section-label">Follow up today</div>
-    <div class="cards-grid">
-      ${urgent.map(c => `
-        <div class="company-card" onclick="selectCompany('${c.id}', this); switchToCompanies();">
-          <div class="card-top">
-            <div class="company-avatar ${c.avatar_color}">${c.initials}</div>
-            <span class="stage-pill ${getStageClass(c.stage)}">${c.stage || 'New lead'}</span>
-          </div>
-          <div class="company-name">${c.name}</div>
-          <div class="company-meta">${c.industry || ''} · ${c.location || ''}</div>
-          <div class="ai-tag ai-urgent"><i class="ti ti-robot"></i> ${c.ai_tag}</div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
-
+// ─── People ───────────────────────────────────────────────────────────────────
 async function renderPeople() {
+  currentView = 'people';
   const content = document.getElementById('main-content');
-  content.innerHTML = '<div class="empty-state"><i class="ti ti-loader"></i><p>Loading...</p></div>';
+  content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
   const records = await fetchPeople();
 
   const toggleBtns = `
-    <div style="display:flex; gap:6px; margin-bottom:14px; justify-content:flex-end;">
-      <button onclick="peopleView='list'; renderPeople();" class="btn ${peopleView === 'list' ? 'btn-primary' : 'btn-secondary'}" style="padding:5px 12px;font-size:12px;"><i class="ti ti-list"></i> List</button>
-      <button onclick="peopleView='card'; renderPeople();" class="btn ${peopleView === 'card' ? 'btn-primary' : 'btn-secondary'}" style="padding:5px 12px;font-size:12px;"><i class="ti ti-layout-grid"></i> Cards</button>
+    <div style="display:flex;gap:6px;margin-bottom:14px;justify-content:flex-end;">
+      <button onclick="peopleView='list';renderPeople();" class="btn ${peopleView==='list'?'btn-primary':'btn-secondary'}" style="padding:5px 12px;font-size:12px;"><i class="ti ti-list"></i> List</button>
+      <button onclick="peopleView='card';renderPeople();" class="btn ${peopleView==='card'?'btn-primary':'btn-secondary'}" style="padding:5px 12px;font-size:12px;"><i class="ti ti-layout-grid"></i> Cards</button>
     </div>
   `;
 
   const statsHtml = `
     <div class="stats-row">
       <div class="stat-card"><div class="stat-label">Total contacts</div><div class="stat-value">${records.length}</div><div class="stat-sub up">Across all companies</div></div>
-      <div class="stat-card"><div class="stat-label">Companies covered</div><div class="stat-value">${new Set(records.map(r => r.company_id)).size}</div><div class="stat-sub">Unique companies</div></div>
+      <div class="stat-card"><div class="stat-label">Companies covered</div><div class="stat-value">${new Set(records.map(r=>r.company_id)).size}</div><div class="stat-sub">Unique companies</div></div>
     </div>
   `;
 
   const listHtml = `
-    <div style="background:#ffffff; border:1px solid #e8e6df; border-radius:12px; overflow:hidden;">
-      <div style="display:grid; grid-template-columns:2fr 1.5fr 2fr 1.5fr 1fr; padding:10px 16px; background:#f9f8f5; border-bottom:1px solid #e8e6df;">
-        <div style="font-size:11px;font-weight:600;color:#a09e97;text-transform:uppercase;letter-spacing:0.4px;">Name</div>
-        <div style="font-size:11px;font-weight:600;color:#a09e97;text-transform:uppercase;letter-spacing:0.4px;">Company</div>
-        <div style="font-size:11px;font-weight:600;color:#a09e97;text-transform:uppercase;letter-spacing:0.4px;">Email</div>
-        <div style="font-size:11px;font-weight:600;color:#a09e97;text-transform:uppercase;letter-spacing:0.4px;">Phone</div>
-        <div style="font-size:11px;font-weight:600;color:#a09e97;text-transform:uppercase;letter-spacing:0.4px;">Role</div>
+    <div style="background:#fff;border:1px solid #e8e6df;border-radius:12px;overflow:hidden;">
+      <div style="display:grid;grid-template-columns:2fr 1.5fr 2fr 1.5fr 1fr;padding:10px 16px;background:#f9f8f5;border-bottom:1px solid #e8e6df;">
+        ${['Name','Company','Email','Phone','Role'].map(h=>`<div style="font-size:11px;font-weight:600;color:#a09e97;text-transform:uppercase;letter-spacing:0.4px;">${h}</div>`).join('')}
       </div>
-      ${records.map((r, i) => `
-        <div onclick="selectCompany('${r.company_id}', null); switchToCompanies();" style="display:grid; grid-template-columns:2fr 1.5fr 2fr 1.5fr 1fr; padding:12px 16px; border-bottom:${i < records.length - 1 ? '1px solid #f0ede6' : 'none'}; cursor:pointer; transition:background 0.1s;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='transparent'">
+      ${records.map((r,i) => `
+        <div onclick="openCompanyDetail('${r.company_id}')" style="display:grid;grid-template-columns:2fr 1.5fr 2fr 1.5fr 1fr;padding:12px 16px;border-bottom:${i<records.length-1?'1px solid #f0ede6':'none'};cursor:pointer;transition:background 0.1s;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='transparent'">
           <div style="display:flex;align-items:center;gap:9px;">
             <div class="p-avatar av-purple" style="width:30px;height:30px;font-size:11px;">${getInitials(r.people.full_name)}</div>
             <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${r.people.full_name}</div>
@@ -196,9 +482,9 @@ async function renderPeople() {
             <div class="company-avatar ${r.companies.avatar_color}" style="width:20px;height:20px;font-size:9px;border-radius:4px;">${r.companies.initials}</div>
             <div style="font-size:13px;color:#444441;">${r.companies.name}</div>
           </div>
-          <div style="display:flex;align-items:center;font-size:12px;color:#73726c;"><a href="mailto:${r.people.email}" onclick="event.stopPropagation();" style="color:#534AB7;text-decoration:none;">${r.people.email || '—'}</a></div>
-          <div style="display:flex;align-items:center;font-size:12px;color:#73726c;">${r.people.phone || '—'}</div>
-          <div style="display:flex;align-items:center;font-size:12px;color:#a09e97;">${r.role || '—'}</div>
+          <div style="display:flex;align-items:center;font-size:12px;"><a href="mailto:${r.people.email}" onclick="event.stopPropagation();" style="color:#534AB7;text-decoration:none;">${r.people.email||'—'}</a></div>
+          <div style="display:flex;align-items:center;font-size:12px;color:#73726c;">${r.people.phone||'—'}</div>
+          <div style="display:flex;align-items:center;font-size:12px;color:#a09e97;">${r.role||'—'}</div>
         </div>
       `).join('')}
     </div>
@@ -207,74 +493,78 @@ async function renderPeople() {
   const cardHtml = `
     <div class="cards-grid">
       ${records.map(r => `
-        <div class="company-card" onclick="selectCompany('${r.company_id}', null); switchToCompanies();">
+        <div class="company-card" onclick="openCompanyDetail('${r.company_id}')">
           <div class="card-top">
             <div class="company-avatar av-purple">${getInitials(r.people.full_name)}</div>
             <span class="stage-pill s-new">Contact</span>
           </div>
           <div class="company-name">${r.people.full_name}</div>
           <div class="company-meta" style="font-weight:500;color:#534AB7;">${r.companies.name}</div>
-          <div class="company-meta">${r.role || ''}</div>
-          <div class="card-stats"><span class="card-stat"><i class="ti ti-mail"></i> ${r.people.email || '—'}</span></div>
-          <div class="card-divider"></div>
-          <div class="card-people"><span class="person-chip">${r.people.phone || '—'}</span></div>
+          <div class="company-meta">${r.role||''}</div>
+          <div class="card-stats"><span class="card-stat"><i class="ti ti-mail"></i> ${r.people.email||'—'}</span></div>
         </div>
       `).join('')}
     </div>
   `;
 
-  content.innerHTML = statsHtml + toggleBtns + '<div class="section-label">All people</div>' + (peopleView === 'list' ? listHtml : cardHtml);
+  content.innerHTML = statsHtml + toggleBtns + '<div class="section-label">All people</div>' + (peopleView==='list' ? listHtml : cardHtml);
 }
 
+// ─── Tasks ────────────────────────────────────────────────────────────────────
 async function renderTasks() {
+  currentView = 'tasks';
   const content = document.getElementById('main-content');
-  content.innerHTML = '<div class="empty-state"><i class="ti ti-loader"></i><p>Loading...</p></div>';
+  content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
   const tasks = await fetchTasks();
 
-  const sorted = [...tasks].sort((a, b) => {
-    const order = { 'Due today': 0, 'Overdue': 1, 'Due tomorrow': 2, 'Due Friday': 3, 'Due in 3 days': 4 };
-    return (order[a.due_label] ?? 5) - (order[b.due_label] ?? 5);
+  const enriched = tasks.map(t => ({ ...t, dueInfo: dueDateLabel(t.due_date) }));
+  const order = { 'Overdue': 0, 'Due today': 1, 'Due tomorrow': 2 };
+  enriched.sort((a, b) => {
+    const oa = order[a.dueInfo?.label] ?? 9;
+    const ob = order[b.dueInfo?.label] ?? 9;
+    return oa - ob;
   });
 
   content.innerHTML = `
     <div class="stats-row">
       <div class="stat-card"><div class="stat-label">Total tasks</div><div class="stat-value">${tasks.length}</div><div class="stat-sub">Across all companies</div></div>
-      <div class="stat-card"><div class="stat-label">Due today</div><div class="stat-value">${tasks.filter(t => t.due_label === 'Due today').length}</div><div class="stat-sub up">Action needed</div></div>
-      <div class="stat-card"><div class="stat-label">Overdue</div><div class="stat-value">${tasks.filter(t => t.due_label === 'Overdue').length}</div><div class="stat-sub" style="color:#A32D2D;">Needs attention</div></div>
+      <div class="stat-card"><div class="stat-label">Due today</div><div class="stat-value">${enriched.filter(t=>t.dueInfo?.label==='Due today').length}</div><div class="stat-sub up">Action needed</div></div>
+      <div class="stat-card"><div class="stat-label">Overdue</div><div class="stat-value">${enriched.filter(t=>t.dueInfo?.label==='Overdue').length}</div><div class="stat-sub" style="color:#A32D2D;">Needs attention</div></div>
     </div>
     <div class="section-label">All tasks — sorted by urgency</div>
-    <div style="display:flex; flex-direction:column; gap:8px;">
-      ${sorted.map(t => `
-        <div class="company-card" style="display:flex; align-items:center; gap:12px; padding:12px 16px;" onclick="selectCompany('${t.company_id}', null); switchToCompanies();">
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${enriched.map(t => `
+        <div class="company-card" style="display:flex;align-items:center;gap:12px;padding:12px 16px;" onclick="openCompanyDetail('${t.company_id}')">
           <div class="task-box" style="width:16px;height:16px;flex-shrink:0;"></div>
           <div class="company-avatar ${t.companies.avatar_color}" style="width:32px;height:32px;font-size:12px;">${t.companies.initials}</div>
           <div style="flex:1;">
             <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${t.text}</div>
             <div style="font-size:11px;color:#a09e97;margin-top:2px;">${t.companies.name}</div>
           </div>
-          <div style="font-size:11px;font-weight:500;${t.due_label === 'Overdue' ? 'color:#A32D2D;' : t.due_label === 'Due today' ? 'color:#854F0B;' : 'color:#a09e97;'}">${t.due_label || ''}</div>
+          ${t.dueInfo ? `<div class="task-due ${t.dueInfo.cls}">${t.dueInfo.label}</div>` : ''}
         </div>
       `).join('')}
     </div>
   `;
 }
 
+// ─── Navigation ───────────────────────────────────────────────────────────────
 function switchView(view) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   event.currentTarget.classList.add('active');
   document.getElementById('topbar-title').textContent = view.charAt(0).toUpperCase() + view.slice(1);
   const addLabels = { dashboard: 'Add item', companies: 'Add company', people: 'Add person', opportunities: 'Add opportunity', tasks: 'Add task', notes: 'Add note' };
-  document.getElementById('add-btn').textContent = '+ ' + addLabels[view];
-  if (view === 'companies') { renderCompanies(); }
-  else if (view === 'people') { renderPeople(); }
-  else if (view === 'tasks') { renderTasks(); }
-  else if (view === 'dashboard') { renderDashboard(); }
+  document.getElementById('add-btn').textContent = '+ ' + (addLabels[view] || 'Add');
+  selectedId = null;
+
+  if (view === 'dashboard') renderDashboard();
+  else if (view === 'companies') renderCompanies();
+  else if (view === 'people') renderPeople();
+  else if (view === 'tasks') renderTasks();
   else {
+    currentView = view;
     document.getElementById('main-content').innerHTML = `
-      <div class="empty-state">
-        <i class="ti ti-clock"></i>
-        <p>${view.charAt(0).toUpperCase() + view.slice(1)} view coming soon</p>
-      </div>
+      <div class="empty-state"><i class="ti ti-clock"></i><p>${view.charAt(0).toUpperCase()+view.slice(1)} coming soon</p></div>
     `;
   }
 }
@@ -284,13 +574,5 @@ function switchFilter(el) {
   el.classList.add('active');
 }
 
-function switchToCompanies() {
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav-item')[1].classList.add('active');
-  document.getElementById('topbar-title').textContent = 'Companies';
-  document.getElementById('add-btn').textContent = '+ Add company';
-  renderCompanies();
-}
-
-// Init
-renderCompanies();
+// ─── Init ─────────────────────────────────────────────────────────────────────
+renderDashboard();
