@@ -355,6 +355,7 @@ let _dashData = null;
 
 async function renderDashboard() {
   currentView = 'dashboard';
+  _currentDetail = null; _navStack.length = 0;
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
 
@@ -553,7 +554,11 @@ function companyCardHtml(c, fromDashboard = false) {
 }
 
 // ─── Company detail page ──────────────────────────────────────────────────────
+let _currentDetail = null; // tracks what detail page is open for nav stack
+
 async function openCompanyDetail(id) {
+  if (_currentDetail) _navStack.push(_currentDetail);
+  _currentDetail = { type: 'company', id };
   selectedId = id;
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
@@ -744,8 +749,16 @@ async function openCompanyDetail(id) {
   `;
 }
 
+// Simple nav stack — push before navigating into a detail, pop on goBack
+const _navStack = [];
+
 function goBack() {
   selectedId = null;
+  const prev = _navStack.pop();
+  if (prev) {
+    if (prev.type === 'company') { openCompanyDetail(prev.id); return; }
+    if (prev.type === 'person')  { openPersonDetail(prev.id);  return; }
+  }
   if (currentView === 'dashboard') renderDashboard();
   else if (currentView === 'companies') renderCompanies();
   else if (currentView === 'people') renderPeople();
@@ -763,6 +776,8 @@ function switchPersonTab(tabName, personId) {
 }
 
 async function openPersonDetail(id) {
+  if (_currentDetail) _navStack.push(_currentDetail);
+  _currentDetail = { type: 'person', id };
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
 
@@ -1346,24 +1361,29 @@ function showEditCompanyModal(id, name, industry, location, website) {
   showModal(`
     <div style="font-size:17px;font-weight:700;margin-bottom:18px;">Edit company</div>
     <div style="display:flex;flex-direction:column;gap:10px;">
-      <input id="ec-name" class="inline-input" placeholder="Company name *" value="${name}"/>
+      <input id="ec-name" class="inline-input" placeholder="Company name *"/>
       <select id="ec-industry" class="inline-input">
         <option value="">Industry (optional)</option>
-        ${allIndustries.map(i => `<option value="${i}" ${i===industry?'selected':''}>${i}</option>`).join('')}
+        ${allIndustries.map(i => `<option value="${i}">${i}</option>`).join('')}
         <option value="__custom__">+ Add new industry…</option>
       </select>
       <input id="ec-industry-custom" class="inline-input" placeholder="Enter industry name" style="display:none;"/>
       <select id="ec-country" class="inline-input">
         <option value="">Country (optional)</option>
-        ${SE_ASIA_COUNTRIES.map(c => `<option value="${c}" ${c===location?'selected':''}>${c}</option>`).join('')}
+        ${SE_ASIA_COUNTRIES.map(c => `<option value="${c}">${c}</option>`).join('')}
       </select>
-      <input id="ec-website" class="inline-input" placeholder="Website" value="${website}"/>
+      <input id="ec-website" class="inline-input" placeholder="Website"/>
     </div>
     <div style="display:flex;gap:8px;margin-top:18px;">
       <button class="btn btn-primary" style="flex:1;" onclick="submitEditCompany('${id}')">Save</button>
       <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
     </div>
   `);
+  // Set values via JS to safely handle special characters
+  document.getElementById('ec-name').value    = name    || '';
+  document.getElementById('ec-website').value = website || '';
+  if (industry) document.getElementById('ec-industry').value = industry;
+  if (location) document.getElementById('ec-country').value  = location;
   document.getElementById('ec-industry').addEventListener('change', function() {
     const custom = document.getElementById('ec-industry-custom');
     custom.style.display = this.value === '__custom__' ? 'block' : 'none';
@@ -1409,17 +1429,23 @@ function showEditPersonModal(id, name, email, phone, linkedin, role) {
   showModal(`
     <div style="font-size:17px;font-weight:700;margin-bottom:18px;">Edit contact</div>
     <div style="display:flex;flex-direction:column;gap:10px;">
-      <input id="ep-name" class="inline-input" placeholder="Full name *" value="${name||''}"/>
-      <input id="ep-role" class="inline-input" placeholder="Role/title" value="${role||''}"/>
-      <input id="ep-email" class="inline-input" placeholder="Email" value="${email||''}"/>
-      <input id="ep-phone" class="inline-input" placeholder="Phone" value="${phone||''}"/>
-      <input id="ep-linkedin" class="inline-input" placeholder="LinkedIn URL" value="${linkedin||''}"/>
+      <input id="ep-name" class="inline-input" placeholder="Full name *"/>
+      <input id="ep-role" class="inline-input" placeholder="Role/title"/>
+      <input id="ep-email" class="inline-input" placeholder="Email"/>
+      <input id="ep-phone" class="inline-input" placeholder="Phone"/>
+      <input id="ep-linkedin" class="inline-input" placeholder="LinkedIn URL"/>
     </div>
     <div style="display:flex;gap:8px;margin-top:18px;">
       <button class="btn btn-primary" style="flex:1;" onclick="submitEditPerson('${id}')">Save</button>
       <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
     </div>
   `);
+  // Set values via JS to safely handle quotes, apostrophes, special chars
+  document.getElementById('ep-name').value    = name     || '';
+  document.getElementById('ep-role').value    = role     || '';
+  document.getElementById('ep-email').value   = email    || '';
+  document.getElementById('ep-phone').value   = phone    || '';
+  document.getElementById('ep-linkedin').value = linkedin || '';
 }
 
 async function submitEditPerson(id) {
@@ -1603,6 +1629,7 @@ async function markTaskDone(taskId) {
 // ─── Companies list ───────────────────────────────────────────────────────────
 async function renderCompanies() {
   currentView = 'companies';
+  _currentDetail = null; _navStack.length = 0;
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
   const companies = await fetchCompanies();
@@ -1627,6 +1654,7 @@ async function renderCompanies() {
 // ─── People ───────────────────────────────────────────────────────────────────
 async function renderPeople() {
   currentView = 'people';
+  _currentDetail = null; _navStack.length = 0;
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
   const [records] = await Promise.all([fetchPeople(), companiesData.length ? Promise.resolve() : fetchCompanies()]);
