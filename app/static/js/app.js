@@ -238,29 +238,39 @@ function toggleDoneTasks(scopeId) {
   if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(90deg)';
 }
 
+function toggleStageDropdown(companyId) {
+  const dd = document.getElementById(`stage-dropdown-${companyId}`);
+  if (!dd) return;
+  const isOpen = dd.style.display !== 'none';
+  // Close all other dropdowns
+  document.querySelectorAll('[id^="stage-dropdown-"]').forEach(el => el.style.display = 'none');
+  dd.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    const close = (e) => { if (!dd.contains(e.target)) { dd.style.display = 'none'; document.removeEventListener('click', close); } };
+    setTimeout(() => document.addEventListener('click', close), 0);
+  }
+}
+
 async function changeCompanyStage(companyId, newStage) {
-  // Optimistic update of the stage pill
   const pill = document.getElementById(`company-stage-pill-${companyId}`);
   const s = stageStyle(newStage);
-  if (pill) { pill.textContent = newStage; pill.style.background = s.bg; pill.style.color = s.text; }
-
+  if (pill) {
+    pill.innerHTML = `${newStage} <i class="ti ti-chevron-down" style="font-size:10px;margin-left:2px;"></i>`;
+    pill.style.background = s.bg;
+    pill.style.color = s.text;
+  }
+  // Update dropdown options to exclude new stage
+  const dd = document.getElementById(`stage-dropdown-${companyId}`);
+  if (dd) {
+    dd.innerHTML = STAGE_ORDER.filter(st => st !== newStage).map(st => {
+      const sc = stageStyle(st);
+      return `<div onclick="changeCompanyStage('${companyId}','${st}');toggleStageDropdown('${companyId}')" style="padding:9px 14px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='transparent'"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sc.text};flex-shrink:0;"></span>${st}</div>`;
+    }).join('');
+  }
   try {
     await patchStage(companyId, newStage);
-    // Refresh company list in background
     fetchCompanies();
-    // Rebuild the "Move to" buttons to remove the new current stage
-    const moveRow = pill?.closest('.detail-page-header')?.querySelector('.stage-change-row');
-    if (moveRow) {
-      moveRow.innerHTML = `<span style="font-size:11px;color:#a09e97;margin-right:2px;">Move to:</span>` +
-        STAGE_ORDER.filter(st => st !== newStage).map(st => {
-          const sc = stageStyle(st);
-          return `<button onclick="changeCompanyStage('${companyId}','${st}')" class="stage-change-btn" style="background:${sc.bg};color:${sc.text};border:none;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;" onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'">${st}</button>`;
-        }).join('');
-    }
-  } catch(e) {
-    // Revert on failure
-    if (pill) { const os = stageStyle(pill._origStage || newStage); pill.textContent = pill._origStage || newStage; pill.style.background = os.bg; pill.style.color = os.text; }
-  }
+  } catch(e) { }
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -478,16 +488,19 @@ async function openCompanyDetail(id) {
         <div style="flex:1;">
           <div style="font-size:20px;font-weight:700;color:#2c2c2a;">${c.name}</div>
           <div style="font-size:13px;color:#73726c;margin-top:3px;">${c.industry || ''}${c.location ? ' · ' + c.location : ''}</div>
-          <!-- Stage change pills -->
-          <div class="stage-change-row" style="display:flex;align-items:center;gap:5px;margin-top:10px;flex-wrap:wrap;">
-            <span style="font-size:11px;color:#a09e97;margin-right:2px;">Move to:</span>
+        </div>
+        <!-- Clickable stage badge with dropdown -->
+        <div style="position:relative;">
+          <span class="stage-pill-lg" id="company-stage-pill-${c.id}" style="background:${s.bg};color:${s.text};cursor:pointer;user-select:none;" onclick="toggleStageDropdown('${c.id}')">
+            ${details.stage} <i class="ti ti-chevron-down" style="font-size:10px;margin-left:2px;"></i>
+          </span>
+          <div id="stage-dropdown-${c.id}" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #e8e6df;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.08);min-width:130px;z-index:100;overflow:hidden;">
             ${STAGE_ORDER.filter(st => st !== details.stage).map(st => {
               const sc = stageStyle(st);
-              return `<button onclick="changeCompanyStage('${c.id}','${st}')" class="stage-change-btn" style="background:${sc.bg};color:${sc.text};border:none;border-radius:10px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;transition:opacity 0.1s;" onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'">${st}</button>`;
+              return `<div onclick="changeCompanyStage('${c.id}','${st}');toggleStageDropdown('${c.id}')" style="padding:9px 14px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='transparent'"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sc.text};flex-shrink:0;"></span>${st}</div>`;
             }).join('')}
           </div>
         </div>
-        <span class="stage-pill-lg" id="company-stage-pill-${c.id}" style="background:${s.bg};color:${s.text};">${details.stage}</span>
       </div>
 
       <!-- Body: two-column -->
