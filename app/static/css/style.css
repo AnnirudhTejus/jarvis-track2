@@ -36,6 +36,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .stat-label { font-size: 11px; color: #a09e97; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; }
 .stat-value { font-size: 22px; font-weight: 600; color: #2c2c2a; }
 .stat-sub { font-size: 11px; color: #a09e97; margin-top: 2px; }
+.action-tile--active { outline: 2px solid #c4c0b8; background: #f9f8f5 !important; }
+
+/* Dashboard expand panels */
+.dash-expand-panel {
+  background: #ffffff;
+  border: 1px solid #e8e6df;
+  border-radius: 10px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+.dash-expand-panel .company-card {
+  border-bottom: 1px solid #f1efe8;
+  border-radius: 0;
+}
+.dash-expand-panel .company-card:last-child { border-bottom: none; }
 .stat-sub.up { color: #0F6E56; }
 
 /* ── Funnel row ───────────────────────────────────────────────────────────── */
@@ -67,6 +82,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 .funnel-tile:hover { background: var(--stage-bg); }
 .funnel-tile-active { background: var(--stage-bg) !important; outline: 2px solid var(--stage-dot); }
+.funnel-tile--active { background: var(--stage-bg) !important; outline: 2px solid var(--stage-dot); }
 
 .funnel-dot {
   width: 9px; height: 9px;

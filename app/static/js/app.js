@@ -333,89 +333,172 @@ function dueDateLabel(dateStr) {
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
+
+// Stores data fetched once so expand/collapse doesn't re-fetch
+let _dashData = null;
+
 async function renderDashboard() {
   currentView = 'dashboard';
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
 
-  const [funnel, stats] = await Promise.all([
+  const [funnel, stats, allCompanies] = await Promise.all([
     fetchFunnel(),
-    fetchDashboardStats().catch(() => ({ tasks_due_count: 0, tasks_due: [], stale_companies_count: 0, stale_companies: [], done_today_count: 0 }))
+    fetchDashboardStats().catch(() => ({ tasks_due_count: 0, tasks_due: [], stale_companies_count: 0, stale_companies: [], done_today_count: 0 })),
+    fetch('/api/companies').then(r => r.json()).catch(() => [])
   ]);
+
+  _dashData = { funnel, stats, allCompanies };
+  _buildDashboard(null, null); // render with nothing expanded
+}
+
+function _buildDashboard(expandedStage, expandedPanel) {
+  const { funnel, stats, allCompanies } = _dashData;
   const { counts } = funnel;
+  const content = document.getElementById('main-content');
 
-  const funnelHtml = `
-    <div class="funnel-row">
-      ${STAGE_ORDER.map(stage => {
-        const s = stageStyle(stage);
-        const n = counts[stage] || 0;
-        return `
-          <div class="funnel-tile" style="--stage-bg:${s.bg};--stage-text:${s.text};--stage-dot:${s.dot};cursor:pointer;"
-               onclick="switchView('companies')">
-            <div class="funnel-dot"></div>
-            <div class="funnel-stage">${stage}</div>
-            <div class="funnel-count">${n}</div>
-            <div class="funnel-label">compan${n === 1 ? 'y' : 'ies'}</div>
-          </div>
-        `;
-      }).join('<div class="funnel-arrow"><i class="ti ti-chevron-right"></i></div>')}
-    </div>
-  `;
+  // ── Funnel strip ──────────────────────────────────────────────────────────
+  const funnelTilesHtml = STAGE_ORDER.map(stage => {
+    const s = stageStyle(stage);
+    const n = counts[stage] || 0;
+    const isActive = expandedStage === stage;
+    return `
+      <div class="funnel-tile ${isActive ? 'funnel-tile--active' : ''}"
+           style="--stage-bg:${s.bg};--stage-text:${s.text};--stage-dot:${s.dot};cursor:pointer;"
+           onclick="dashToggleStage('${stage}')">
+        <div class="funnel-dot"></div>
+        <div class="funnel-stage">${stage}</div>
+        <div class="funnel-count">${n}</div>
+        <div class="funnel-label">compan${n === 1 ? 'y' : 'ies'}</div>
+      </div>`;
+  }).join('<div class="funnel-arrow"><i class="ti ti-chevron-right"></i></div>');
 
-  // Actionable tiles — things you can do, not just numbers
+  // ── Stage expand panel ────────────────────────────────────────────────────
+  let stagePanelHtml = '';
+  if (expandedStage) {
+    const cos = allCompanies.filter(c => c.stage === expandedStage);
+    stagePanelHtml = `
+      <div class="dash-expand-panel" id="dash-stage-panel">
+        ${cos.length === 0
+          ? `<div style="padding:20px;text-align:center;color:#a09e97;font-size:13px;">No companies in ${expandedStage}</div>`
+          : cos.map(c => `
+            <div class="company-card" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="openCompanyDetail('${c.id}')">
+              <div class="company-avatar ${c.avatar_color}" style="width:32px;height:32px;font-size:12px;flex-shrink:0;">${c.initials}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${c.name}</div>
+                <div style="font-size:11px;color:#a09e97;margin-top:1px;">${[c.industry, c.location].filter(Boolean).join(' · ') || '—'}</div>
+              </div>
+              <i class="ti ti-chevron-right" style="color:#c4c0b8;font-size:14px;"></i>
+            </div>`).join('')}
+      </div>`;
+  }
+
+  // ── Action tiles ──────────────────────────────────────────────────────────
+  const taskCount = stats.tasks_due_count || 0;
+  const coldCount = stats.stale_companies_count || 0;
+  const taskActive = expandedPanel === 'tasks';
+  const coldActive = expandedPanel === 'cold';
+
   const actionTilesHtml = `
-    <div class="stats-row" style="margin-top:18px;">
-      <div class="stat-card action-tile" onclick="switchView('tasks')" style="cursor:pointer;">
-        <div class="stat-label" style="display:flex;align-items:center;gap:5px;"><i class="ti ti-alert-circle" style="color:#A32D2D;font-size:13px;"></i> Tasks overdue / due today</div>
-        <div class="stat-value" style="${stats.tasks_due_count > 0 ? 'color:#A32D2D;' : ''}">${stats.tasks_due_count}</div>
-        <div class="stat-sub" style="${stats.tasks_due_count > 0 ? 'color:#A32D2D;' : 'color:#0F6E56;'}">
-          ${stats.tasks_due_count > 0 ? 'Needs your attention' : 'All clear'}
+    <div class="stats-row" style="margin-top:24px;">
+      <div class="stat-card action-tile ${taskActive ? 'action-tile--active' : ''}" onclick="dashTogglePanel('tasks')" style="cursor:pointer;">
+        <div class="stat-label" style="display:flex;align-items:center;gap:5px;">
+          <i class="ti ti-alert-circle" style="color:#A32D2D;font-size:13px;"></i> Tasks overdue / due today
+        </div>
+        <div class="stat-value" style="${taskCount > 0 ? 'color:#A32D2D;' : ''}">${taskCount}</div>
+        <div class="stat-sub" style="${taskCount > 0 ? 'color:#A32D2D;' : 'color:#0F6E56;'}">
+          ${taskCount > 0 ? 'Tap to see tasks' : 'All clear'}
         </div>
       </div>
-      <div class="stat-card action-tile" onclick="filterByStage(null)" style="cursor:pointer;">
-        <div class="stat-label" style="display:flex;align-items:center;gap:5px;"><i class="ti ti-building-off" style="color:#854F0B;font-size:13px;"></i> Gone cold — no touch 30d+</div>
-        <div class="stat-value" style="${stats.stale_companies_count > 0 ? 'color:#854F0B;' : ''}">${stats.stale_companies_count}</div>
-        <div class="stat-sub" style="${stats.stale_companies_count > 0 ? 'color:#854F0B;' : 'color:#0F6E56;'}">
-          ${stats.stale_companies_count > 0 ? 'Time to reach out' : 'All active'}
+      <div class="stat-card action-tile ${coldActive ? 'action-tile--active' : ''}" onclick="dashTogglePanel('cold')" style="cursor:pointer;">
+        <div class="stat-label" style="display:flex;align-items:center;gap:5px;">
+          <i class="ti ti-building-off" style="color:#854F0B;font-size:13px;"></i> Gone cold
+        </div>
+        <div class="stat-value" style="${coldCount > 0 ? 'color:#854F0B;' : ''}">${coldCount}</div>
+        <div class="stat-sub" style="${coldCount > 0 ? 'color:#854F0B;' : 'color:#0F6E56;'}">
+          ${coldCount > 0 ? 'Tap to see who' : 'All active'}
         </div>
       </div>
-      <div class="stat-card" style="opacity:0.6;">
-        <div class="stat-label" style="display:flex;align-items:center;gap:5px;"><i class="ti ti-robot" style="font-size:13px;"></i> AI suggestions</div>
+      <div class="stat-card" style="opacity:0.5;pointer-events:none;">
+        <div class="stat-label" style="display:flex;align-items:center;gap:5px;">
+          <i class="ti ti-robot" style="font-size:13px;"></i> AI suggestions
+        </div>
         <div class="stat-value">—</div>
-        <div class="stat-sub">Coming in Phase 3</div>
+        <div class="stat-sub">Phase 3</div>
       </div>
     </div>
   `;
 
-  // Gone cold companies — actionable list, click to open
-  const coldCos = stats.stale_companies || [];
-  const coldHtml = coldCos.length === 0 ? '' : `
-    <div class="section-label" style="margin-top:24px;margin-bottom:10px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#a09e97;">
-      <i class="ti ti-building-off" style="color:#854F0B;font-size:12px;"></i> Gone cold — no activity in 30+ days
-    </div>
-    <div style="display:flex;flex-direction:column;gap:6px;">
-      ${coldCos.map(c => `
-        <div class="company-card" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-left:3px solid #FCD34D;" onclick="openCompanyDetail('${c.id}')">
-          <div class="company-avatar ${c.avatar_color}" style="width:32px;height:32px;font-size:12px;flex-shrink:0;">${c.initials}</div>
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${c.name}</div>
-            <div style="font-size:11px;color:#a09e97;margin-top:1px;">${[c.industry, c.location].filter(Boolean).join(' · ') || 'No details'}</div>
-          </div>
-          <i class="ti ti-chevron-right" style="color:#c4c0b8;font-size:14px;flex-shrink:0;"></i>
-        </div>`).join('')}
-    </div>
+  // ── Expand panel for tasks or cold ───────────────────────────────────────
+  let expandPanelHtml = '';
+  if (expandedPanel === 'tasks') {
+    const tasks = stats.tasks_due || [];
+    expandPanelHtml = `
+      <div class="dash-expand-panel" id="dash-action-panel">
+        ${tasks.length === 0
+          ? `<div style="padding:20px;text-align:center;color:#a09e97;font-size:13px;">No overdue tasks</div>`
+          : tasks.map(t => {
+              const co = t.companies;
+              const di = dueDateLabel(t.due_date);
+              return `
+                <div class="company-card" style="display:flex;align-items:center;gap:10px;padding:10px 14px;${co ? 'cursor:pointer;' : ''}" ${co ? `onclick="openCompanyDetail('${t.company_id}')"` : ''}>
+                  <div class="company-avatar ${co ? co.avatar_color : 'av-purple'}" style="width:32px;height:32px;font-size:12px;flex-shrink:0;">${co ? co.initials : '?'}</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${t.text}</div>
+                    <div style="font-size:11px;color:#a09e97;margin-top:1px;">${co ? co.name : 'Personal task'}</div>
+                  </div>
+                  ${di ? `<div class="task-due ${di.cls}">${di.label}</div>` : ''}
+                </div>`;
+            }).join('')}
+      </div>`;
+  } else if (expandedPanel === 'cold') {
+    const cold = stats.stale_companies || [];
+    expandPanelHtml = `
+      <div class="dash-expand-panel" id="dash-action-panel">
+        ${cold.length === 0
+          ? `<div style="padding:20px;text-align:center;color:#a09e97;font-size:13px;">No cold companies</div>`
+          : cold.map(c => `
+            <div class="company-card" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="openCompanyDetail('${c.id}')">
+              <div class="company-avatar ${c.avatar_color}" style="width:32px;height:32px;font-size:12px;flex-shrink:0;">${c.initials}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${c.name}</div>
+                <div style="font-size:11px;color:#a09e97;margin-top:1px;">${[c.industry, c.location].filter(Boolean).join(' · ') || '—'}</div>
+              </div>
+              <i class="ti ti-chevron-right" style="color:#c4c0b8;font-size:14px;"></i>
+            </div>`).join('')}
+      </div>`;
+  }
+
+  // ── All clear ─────────────────────────────────────────────────────────────
+  const allClearHtml = (taskCount === 0 && coldCount === 0) ? `
+    <div style="margin-top:20px;padding:20px 24px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;text-align:center;color:#0F6E56;">
+      <i class="ti ti-circle-check" style="font-size:22px;margin-bottom:6px;display:block;"></i>
+      <div style="font-size:14px;font-weight:500;">All clear — nothing needs attention.</div>
+    </div>` : '';
+
+  content.innerHTML = `
+    <div class="funnel-row">${funnelTilesHtml}</div>
+    ${stagePanelHtml}
+    ${actionTilesHtml}
+    ${expandPanelHtml}
+    ${allClearHtml}
   `;
+}
 
-  // All clear state
-  const allClearHtml = (stats.tasks_due_count === 0 && coldCos.length === 0) ? `
-    <div style="margin-top:24px;padding:20px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;text-align:center;color:#0F6E56;">
-      <i class="ti ti-circle-check" style="font-size:24px;margin-bottom:8px;display:block;"></i>
-      <div style="font-size:14px;font-weight:500;">All clear — nothing needs attention right now.</div>
-      <div style="font-size:12px;color:#15803D;margin-top:4px;">Great work staying on top of things.</div>
-    </div>
-  ` : '';
+// Track what's currently open on the dashboard
+let _dashExpandedStage = null;
+let _dashExpandedPanel = null;
 
-  content.innerHTML = funnelHtml + actionTilesHtml + coldHtml + allClearHtml;
+function dashToggleStage(stage) {
+  _dashExpandedStage = _dashExpandedStage === stage ? null : stage;
+  _dashExpandedPanel = null; // close action panels when funnel clicked
+  _buildDashboard(_dashExpandedStage, _dashExpandedPanel);
+}
+
+function dashTogglePanel(panel) {
+  _dashExpandedPanel = _dashExpandedPanel === panel ? null : panel;
+  _dashExpandedStage = null; // close stage panel when action tile clicked
+  _buildDashboard(_dashExpandedStage, _dashExpandedPanel);
 }
 
 function filterByStage(stage) {
