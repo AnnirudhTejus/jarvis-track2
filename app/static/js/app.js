@@ -244,11 +244,25 @@ function toggleStageDropdown(companyId) {
   const isOpen = dd.style.display !== 'none';
   // Close all other dropdowns
   document.querySelectorAll('[id^="stage-dropdown-"]').forEach(el => el.style.display = 'none');
-  dd.style.display = isOpen ? 'none' : 'block';
-  if (!isOpen) {
-    const close = (e) => { if (!dd.contains(e.target)) { dd.style.display = 'none'; document.removeEventListener('click', close); } };
-    setTimeout(() => document.addEventListener('click', close), 0);
+  if (isOpen) return;
+
+  // Position using fixed coords so it escapes overflow:hidden containers
+  const pill = document.getElementById(`company-stage-pill-${companyId}`);
+  if (pill) {
+    const rect = pill.getBoundingClientRect();
+    dd.style.position = 'fixed';
+    dd.style.top = (rect.bottom + 6) + 'px';
+    dd.style.right = (window.innerWidth - rect.right) + 'px';
+    dd.style.left = 'auto';
   }
+  dd.style.display = 'block';
+  const close = (e) => {
+    if (!dd.contains(e.target) && e.target !== pill) {
+      dd.style.display = 'none';
+      document.removeEventListener('click', close);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', close), 0);
 }
 
 async function changeCompanyStage(companyId, newStage) {
@@ -259,12 +273,13 @@ async function changeCompanyStage(companyId, newStage) {
     pill.style.background = s.bg;
     pill.style.color = s.text;
   }
-  // Update dropdown options to exclude new stage
+  // Close dropdown and update options to exclude new stage
   const dd = document.getElementById(`stage-dropdown-${companyId}`);
   if (dd) {
+    dd.style.display = 'none';
     dd.innerHTML = STAGE_ORDER.filter(st => st !== newStage).map(st => {
       const sc = stageStyle(st);
-      return `<div onclick="changeCompanyStage('${companyId}','${st}');toggleStageDropdown('${companyId}')" style="padding:9px 14px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='transparent'"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sc.text};flex-shrink:0;"></span>${st}</div>`;
+      return `<div onclick="changeCompanyStage('${companyId}','${st}')" style="padding:9px 14px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='transparent'"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sc.text};flex-shrink:0;"></span>${st}</div>`;
     }).join('');
   }
   try {
@@ -494,7 +509,7 @@ async function openCompanyDetail(id) {
           <span class="stage-pill-lg" id="company-stage-pill-${c.id}" style="background:${s.bg};color:${s.text};cursor:pointer;user-select:none;" onclick="toggleStageDropdown('${c.id}')">
             ${details.stage} <i class="ti ti-chevron-down" style="font-size:10px;margin-left:2px;"></i>
           </span>
-          <div id="stage-dropdown-${c.id}" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #e8e6df;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.08);min-width:130px;z-index:100;overflow:hidden;">
+          <div id="stage-dropdown-${c.id}" style="display:none;position:fixed;background:#fff;border:1px solid #e8e6df;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.12);min-width:140px;z-index:9999;">
             ${STAGE_ORDER.filter(st => st !== details.stage).map(st => {
               const sc = stageStyle(st);
               return `<div onclick="changeCompanyStage('${c.id}','${st}');toggleStageDropdown('${c.id}')" style="padding:9px 14px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;" onmouseover="this.style.background='#faf9f7'" onmouseout="this.style.background='transparent'"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sc.text};flex-shrink:0;"></span>${st}</div>`;
