@@ -609,14 +609,15 @@ async function openCompanyDetail(id) {
 
   const activityTypeIcon = { call: 'ti-phone', meeting: 'ti-users', email: 'ti-mail', whatsapp: 'ti-brand-whatsapp', other: 'ti-activity' };
   const activityTypeLabel = { call: 'Call', meeting: 'Meeting', email: 'Email', whatsapp: 'WhatsApp', other: 'Activity' };
-  const activitiesHtml = details.activities.map(a => {
+  const activitiesHtml = (details.activities || []).map(a => {
     const icon = activityTypeIcon[a.activity_type] || 'ti-activity';
     const label = activityTypeLabel[a.activity_type] || a.activity_type || 'Activity';
+    const withWhom = a.person_name ? ` <span style="color:#73726c;font-weight:400;">with ${a.person_name}</span>` : '';
     return `
     <div class="tl-item">
       <div class="tl-dot"><i class="ti ${icon}" style="font-size:11px;color:#fff;"></i></div>
       <div style="flex:1;">
-        <div class="tl-text"><strong>${label}</strong>${a.notes ? ` — ${a.notes}` : ''}</div>
+        <div class="tl-text"><strong>${label}</strong>${withWhom}${a.notes ? ` — ${a.notes}` : ''}</div>
         <div class="tl-date">${timeAgo(a.activity_date)}</div>
       </div>
     </div>`;
@@ -1292,7 +1293,7 @@ async function submitLogActivity(companyId) {
       item.innerHTML = `
         <div class="tl-dot"><i class="ti ${icon}" style="font-size:11px;color:#fff;"></i></div>
         <div style="flex:1;">
-          <div class="tl-text"><strong>${label}</strong>${finalPersonName ? ` with ${finalPersonName}` : ''}${activity.notes ? ` — ${activity.notes}` : ''}</div>
+          <div class="tl-text"><strong>${label}</strong>${finalPersonName ? ` <span style="color:#73726c;font-weight:400;">with ${finalPersonName}</span>` : ''}${activity.notes ? ` — ${activity.notes}` : ''}</div>
           <div class="tl-date">Just now</div>
         </div>`;
       list.insertBefore(item, list.firstChild);

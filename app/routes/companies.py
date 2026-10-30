@@ -128,7 +128,7 @@ def get_company_details(company_id: str):
     def q_notes():
         return supabase.table("notes").select("*").eq("company_id", company_id).order("created_at", desc=True).execute()
     def q_activities():
-        return supabase.table("activities").select("*").eq("company_id", company_id).order("activity_date", desc=True).execute()
+        return supabase.table("activities").select("*, people(full_name)").eq("company_id", company_id).order("activity_date", desc=True).execute()
     def q_engagements():
         return supabase.table("engagements").select("*").eq("company_id", company_id).eq("status", "active").execute()
 
@@ -150,7 +150,10 @@ def get_company_details(company_id: str):
         "company": company.data,
         "people": [r["people"] | {"role": r["role"]} for r in people.data],
         "notes": notes.data,
-        "activities": activities.data,
+        "activities": [
+            {**a, "person_name": (a.get("people") or {}).get("full_name")}
+            for a in activities.data
+        ],
         "engagement": eng,
         "stage": normalise_stage(eng.get("stage") if eng else None),
     }
