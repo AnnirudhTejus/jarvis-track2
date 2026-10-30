@@ -73,6 +73,22 @@ async function postPersonTask(person_id, text, due_date) {
   return await res.json();
 }
 
+async function refreshTasksBadge() {
+  try {
+    const res = await fetch('/api/tasks');
+    if (!res.ok) return;
+    const tasks = await res.json();
+    const badge = document.getElementById('tasks-badge');
+    if (!badge) return;
+    if (tasks.length > 0) {
+      badge.textContent = tasks.length;
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(e) {}
+}
+
 async function fetchDashboardStats() {
   try {
     const res = await fetch('/api/dashboard/stats');
@@ -583,15 +599,20 @@ async function openCompanyDetail(id) {
     </div>
   `).join('') || '<div class="empty-mini">No notes yet.</div>';
 
-  const activitiesHtml = details.activities.map(a => `
+  const activityTypeIcon = { call: 'ti-phone', meeting: 'ti-users', email: 'ti-mail', other: 'ti-activity' };
+  const activityTypeLabel = { call: 'Call', meeting: 'Meeting', email: 'Email', other: 'Activity' };
+  const activitiesHtml = details.activities.map(a => {
+    const icon = activityTypeIcon[a.activity_type] || 'ti-activity';
+    const label = activityTypeLabel[a.activity_type] || a.activity_type || 'Activity';
+    return `
     <div class="tl-item">
-      <div class="tl-dot" style="background:${a.color || '#c8c6be'};"></div>
-      <div>
-        <div class="tl-text">${a.text}</div>
+      <div class="tl-dot"><i class="ti ${icon}" style="font-size:11px;color:#fff;"></i></div>
+      <div style="flex:1;">
+        <div class="tl-text"><strong>${label}</strong>${a.notes ? ` — ${a.notes}` : ''}</div>
         <div class="tl-date">${timeAgo(a.activity_date)}</div>
       </div>
-    </div>
-  `).join('') || '<div class="empty-mini">No activity yet.</div>';
+    </div>`;
+  }).join('') || '<div class="empty-mini">No activity yet.</div>';
 
   content.innerHTML = `
     <div class="detail-page">
@@ -636,8 +657,26 @@ async function openCompanyDetail(id) {
 
           <!-- Activity timeline -->
           <div class="detail-section">
-            <div class="detail-section-title"><i class="ti ti-activity"></i> Activity</div>
-            <div>${activitiesHtml}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <div class="detail-section-title" style="margin-bottom:0;"><i class="ti ti-activity"></i> Activity</div>
+              <button class="add-inline-btn" onclick="toggleLogActivity('${c.id}')"><i class="ti ti-plus"></i> Log</button>
+            </div>
+            <!-- Log activity inline form -->
+            <div id="log-activity-form-${c.id}" style="display:none;" class="inline-form">
+              <select id="activity-type-${c.id}" class="inline-input" style="margin-bottom:6px;">
+                <option value="call">📞 Call</option>
+                <option value="meeting">🤝 Meeting</option>
+                <option value="email">✉️ Email</option>
+                <option value="other">📌 Other</option>
+              </select>
+              <input type="date" id="activity-date-${c.id}" class="inline-input" style="margin-bottom:6px;" value="${new Date().toISOString().split('T')[0]}"/>
+              <textarea id="activity-notes-${c.id}" class="inline-input" rows="2" placeholder="Notes (optional)…" style="resize:none;"></textarea>
+              <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn btn-primary" style="flex:1;font-size:12px;" onclick="submitLogActivity('${c.id}')">Save</button>
+                <button class="btn btn-secondary" style="font-size:12px;" onclick="toggleLogActivity('${c.id}')">Cancel</button>
+              </div>
+            </div>
+            <div id="activities-list-${c.id}">${activitiesHtml}</div>
           </div>
 
         </div>
@@ -1024,6 +1063,64 @@ async function submitAddPerson() {
   if (currentView === 'people') renderPeople();
 }
 
+// ─── Log activity ─────────────────────────────────────────────────────────────
+function toggleLogActivity(companyId) {
+  const form = document.getElementById(`log-activity-form-${companyId}`);
+  if (!form) return;
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function submitLogActivity(companyId) {
+  const typeEl  = document.getElementById(`activity-type-${companyId}`);
+  const dateEl  = document.getElementById(`activity-date-${companyId}`);
+  const notesEl = document.getElementById(`activity-notes-${companyId}`);
+  if (!typeEl || !dateEl) return;
+
+  const payload = {
+    company_id: companyId,
+    activity_type: typeEl.value,
+    activity_date: dateEl.value || new Date().toISOString().split('T')[0],
+    notes: notesEl ? notesEl.value.trim() || null : null,
+  };
+
+  try {
+    const res = await fetch('/api/activities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('Failed');
+    const activity = await res.json();
+
+    // Prepend to the activity list in DOM — no full reload needed
+    const list = document.getElementById(`activities-list-${companyId}`);
+    if (list) {
+      const empty = list.querySelector('.empty-mini');
+      if (empty) empty.remove();
+      const icons = { call: 'ti-phone', meeting: 'ti-users', email: 'ti-mail', other: 'ti-activity' };
+      const labels = { call: 'Call', meeting: 'Meeting', email: 'Email', other: 'Activity' };
+      const icon = icons[activity.activity_type] || 'ti-activity';
+      const label = labels[activity.activity_type] || 'Activity';
+      const item = document.createElement('div');
+      item.className = 'tl-item';
+      item.innerHTML = `
+        <div class="tl-dot"><i class="ti ${icon}" style="font-size:11px;color:#fff;"></i></div>
+        <div style="flex:1;">
+          <div class="tl-text"><strong>${label}</strong>${activity.notes ? ` — ${activity.notes}` : ''}</div>
+          <div class="tl-date">Just now</div>
+        </div>`;
+      list.insertBefore(item, list.firstChild);
+    }
+
+    // Reset and close form
+    if (notesEl) notesEl.value = '';
+    typeEl.value = 'call';
+    toggleLogActivity(companyId);
+  } catch(e) {
+    alert('Failed to save activity. Please try again.');
+  }
+}
+
 // ─── Inline add forms ─────────────────────────────────────────────────────────
 function toggleAddTask(companyId) {
   const form = document.getElementById(`add-task-form-${companyId}`);
@@ -1118,6 +1215,7 @@ async function markTaskDone(taskId) {
 
   try {
     await patchTaskDone(taskId);
+    refreshTasksBadge(); // update nav badge
     // Find the parent tasks-list and look for / create a done section
     const tasksList = el.closest('[id^="tasks-list-"]');
     if (tasksList) {
@@ -1329,4 +1427,5 @@ function switchFilter(el) {
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+refreshTasksBadge();
 renderDashboard();

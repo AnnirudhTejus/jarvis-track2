@@ -238,6 +238,37 @@ def archive_note(note_id: str):
     return {"id": note_id, "archived": True}
 
 
+# ── Log activity ──────────────────────────────────────────────────────────────
+
+class ActivityIn(BaseModel):
+    company_id: str
+    activity_type: str          # "call", "meeting", "email", "other"
+    activity_date: str          # ISO date string
+    notes: Optional[str] = None
+    person_id: Optional[str] = None
+
+@router.post("/activities")
+def log_activity(body: ActivityIn):
+    row = {
+        "id": str(uuid.uuid4()),
+        "company_id": body.company_id,
+        "activity_type": body.activity_type,
+        "activity_date": body.activity_date,
+        "notes": body.notes,
+        "person_id": body.person_id,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    result = supabase.table("activities").insert(row).execute()
+
+    # Update last_contact_at on the active engagement
+    supabase.table("engagements").update({
+        "last_contact_at": body.activity_date,
+        "updated_at": datetime.utcnow().isoformat(),
+    }).eq("company_id", body.company_id).eq("status", "active").execute()
+
+    return result.data[0] if result.data else row
+
+
 # ── Task completion ────────────────────────────────────────────────────────────
 
 @router.patch("/tasks/{task_id}/done")
