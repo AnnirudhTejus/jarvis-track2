@@ -387,61 +387,35 @@ async function renderDashboard() {
     </div>
   `;
 
-  // Overdue tasks section
-  const dueTasks = stats.tasks_due || [];
-  const dueTasksHtml = dueTasks.length === 0 ? '' : `
-    <div class="section-label" style="margin-top:20px;display:flex;align-items:center;gap:6px;">
-      <i class="ti ti-alert-circle" style="color:#A32D2D;font-size:13px;"></i> Overdue / due today
-    </div>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
-      ${dueTasks.map(t => {
-        const co = t.companies;
-        const avatarHtml = co
-          ? `<div class="company-avatar ${co.avatar_color}" style="width:28px;height:28px;font-size:11px;flex-shrink:0;">${co.initials}</div>`
-          : `<div class="company-avatar av-purple" style="width:28px;height:28px;font-size:11px;flex-shrink:0;">?</div>`;
-        const subLabel = co ? co.name : 'Personal task';
-        const clickAttr = co ? `onclick="openCompanyDetail('${t.company_id}')"` : '';
-        const di = dueDateLabel(t.due_date);
-        return `
-        <div class="company-card" style="display:flex;align-items:center;gap:10px;padding:10px 14px;${co ? 'cursor:pointer;' : ''}" ${clickAttr}>
-          ${avatarHtml}
-          <div style="flex:1;">
-            <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${t.text}</div>
-            <div style="font-size:11px;color:#a09e97;margin-top:1px;">${subLabel}</div>
-          </div>
-          ${di ? `<div class="task-due ${di.cls}">${di.label}</div>` : ''}
-        </div>`;
-      }).join('')}
-    </div>
-  `;
-
-  // Gone cold companies section
+  // Gone cold companies — actionable list, click to open
   const coldCos = stats.stale_companies || [];
   const coldHtml = coldCos.length === 0 ? '' : `
-    <div class="section-label" style="margin-top:20px;display:flex;align-items:center;gap:6px;">
-      <i class="ti ti-building-off" style="color:#854F0B;font-size:13px;"></i> Gone cold — no touch in 30 days
+    <div class="section-label" style="margin-top:24px;margin-bottom:10px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#a09e97;">
+      <i class="ti ti-building-off" style="color:#854F0B;font-size:12px;"></i> Gone cold — no activity in 30+ days
     </div>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+    <div style="display:flex;flex-direction:column;gap:6px;">
       ${coldCos.map(c => `
-        <div class="company-card" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="openCompanyDetail('${c.id}')">
-          <div class="company-avatar ${c.avatar_color}" style="width:28px;height:28px;font-size:11px;flex-shrink:0;">${c.initials}</div>
-          <div style="flex:1;">
+        <div class="company-card" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-left:3px solid #FCD34D;" onclick="openCompanyDetail('${c.id}')">
+          <div class="company-avatar ${c.avatar_color}" style="width:32px;height:32px;font-size:12px;flex-shrink:0;">${c.initials}</div>
+          <div style="flex:1;min-width:0;">
             <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${c.name}</div>
-            <div style="font-size:11px;color:#a09e97;margin-top:1px;">${c.industry || ''}${c.location ? ' · ' + c.location : ''}</div>
+            <div style="font-size:11px;color:#a09e97;margin-top:1px;">${[c.industry, c.location].filter(Boolean).join(' · ') || 'No details'}</div>
           </div>
-          <div style="font-size:11px;font-weight:500;color:#854F0B;background:#FEF3C7;padding:3px 8px;border-radius:20px;">Gone cold</div>
+          <i class="ti ti-chevron-right" style="color:#c4c0b8;font-size:14px;flex-shrink:0;"></i>
         </div>`).join('')}
     </div>
   `;
 
-  const allClearHtml = (dueTasks.length === 0 && coldCos.length === 0) ? `
-    <div style="margin-top:20px;padding:20px;background:#fff;border:1px solid #e8e6df;border-radius:12px;text-align:center;color:#0F6E56;">
+  // All clear state
+  const allClearHtml = (stats.tasks_due_count === 0 && coldCos.length === 0) ? `
+    <div style="margin-top:24px;padding:20px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;text-align:center;color:#0F6E56;">
       <i class="ti ti-circle-check" style="font-size:24px;margin-bottom:8px;display:block;"></i>
       <div style="font-size:14px;font-weight:500;">All clear — nothing needs attention right now.</div>
+      <div style="font-size:12px;color:#15803D;margin-top:4px;">Great work staying on top of things.</div>
     </div>
   ` : '';
 
-  content.innerHTML = funnelHtml + actionTilesHtml + dueTasksHtml + coldHtml + allClearHtml;
+  content.innerHTML = funnelHtml + actionTilesHtml + coldHtml + allClearHtml;
 }
 
 function filterByStage(stage) {
