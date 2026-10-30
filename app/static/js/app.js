@@ -1171,17 +1171,24 @@ async function renderTasks() {
     </div>
     <div class="section-label">All tasks — sorted by urgency</div>
     <div style="display:flex;flex-direction:column;gap:8px;">
-      ${enriched.map(t => `
-        <div class="company-card" style="display:flex;align-items:center;gap:12px;padding:12px 16px;" onclick="openCompanyDetail('${t.company_id}')">
+      ${enriched.map(t => {
+        const co = t.companies;
+        const avatarHtml = co
+          ? `<div class="company-avatar ${co.avatar_color}" style="width:32px;height:32px;font-size:12px;">${co.initials}</div>`
+          : `<div class="company-avatar av-purple" style="width:32px;height:32px;font-size:12px;">?</div>`;
+        const subLabel = co ? co.name : (t.person_id ? 'Personal task' : '—');
+        const clickAttr = co ? `onclick="openCompanyDetail('${t.company_id}')"` : '';
+        return `
+        <div class="company-card" style="display:flex;align-items:center;gap:12px;padding:12px 16px;${co ? 'cursor:pointer;' : ''}" ${clickAttr}>
           <div class="task-box" style="width:16px;height:16px;flex-shrink:0;"></div>
-          <div class="company-avatar ${t.companies.avatar_color}" style="width:32px;height:32px;font-size:12px;">${t.companies.initials}</div>
+          ${avatarHtml}
           <div style="flex:1;">
             <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${t.text}</div>
-            <div style="font-size:11px;color:#a09e97;margin-top:2px;">${t.companies.name}</div>
+            <div style="font-size:11px;color:#a09e97;margin-top:2px;">${subLabel}</div>
           </div>
           ${t.dueInfo ? `<div class="task-due ${t.dueInfo.cls}">${t.dueInfo.label}</div>` : ''}
-        </div>
-      `).join('')}
+        </div>`;
+      }).join('')}
     </div>
   `;
 }
