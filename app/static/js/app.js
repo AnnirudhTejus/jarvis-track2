@@ -377,10 +377,10 @@ async function renderDashboard() {
         </div>
       </div>
       <div class="stat-card action-tile" onclick="filterByStage(null)" style="cursor:pointer;">
-        <div class="stat-label" style="display:flex;align-items:center;gap:5px;"><i class="ti ti-building-off" style="color:#854F0B;font-size:13px;"></i> Stale — no activity 30d+</div>
+        <div class="stat-label" style="display:flex;align-items:center;gap:5px;"><i class="ti ti-building-off" style="color:#854F0B;font-size:13px;"></i> Gone cold — no touch 30d+</div>
         <div class="stat-value" style="${stats.stale_companies_count > 0 ? 'color:#854F0B;' : ''}">${stats.stale_companies_count}</div>
         <div class="stat-sub" style="${stats.stale_companies_count > 0 ? 'color:#854F0B;' : 'color:#0F6E56;'}">
-          ${stats.stale_companies_count > 0 ? 'Consider reaching out' : 'All engaged'}
+          ${stats.stale_companies_count > 0 ? 'Time to reach out' : 'All active'}
         </div>
       </div>
       <div class="stat-card" style="opacity:0.6;">
