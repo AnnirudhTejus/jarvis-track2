@@ -669,6 +669,10 @@ async function openCompanyDetail(id) {
                 <option value="email">✉️ Email</option>
                 <option value="other">📌 Other</option>
               </select>
+              <select id="activity-person-${c.id}" class="inline-input" style="margin-bottom:6px;">
+                <option value="">— With whom? (optional)</option>
+                ${details.people.map(p => `<option value="${p.id}">${p.full_name}${p.role ? ` · ${p.role}` : ''}</option>`).join('')}
+              </select>
               <input type="date" id="activity-date-${c.id}" class="inline-input" style="margin-bottom:6px;" value="${new Date().toISOString().split('T')[0]}"/>
               <textarea id="activity-notes-${c.id}" class="inline-input" rows="2" placeholder="Notes (optional)…" style="resize:none;"></textarea>
               <div style="display:flex;gap:6px;margin-top:8px;">
@@ -1071,16 +1075,21 @@ function toggleLogActivity(companyId) {
 }
 
 async function submitLogActivity(companyId) {
-  const typeEl  = document.getElementById(`activity-type-${companyId}`);
-  const dateEl  = document.getElementById(`activity-date-${companyId}`);
-  const notesEl = document.getElementById(`activity-notes-${companyId}`);
+  const typeEl   = document.getElementById(`activity-type-${companyId}`);
+  const personEl = document.getElementById(`activity-person-${companyId}`);
+  const dateEl   = document.getElementById(`activity-date-${companyId}`);
+  const notesEl  = document.getElementById(`activity-notes-${companyId}`);
   if (!typeEl || !dateEl) return;
+
+  const personId   = personEl ? (personEl.value || null) : null;
+  const personName = personEl && personEl.value ? personEl.options[personEl.selectedIndex].text : null;
 
   const payload = {
     company_id: companyId,
     activity_type: typeEl.value,
     activity_date: dateEl.value || new Date().toISOString().split('T')[0],
     notes: notesEl ? notesEl.value.trim() || null : null,
+    person_id: personId,
   };
 
   try {
@@ -1106,7 +1115,7 @@ async function submitLogActivity(companyId) {
       item.innerHTML = `
         <div class="tl-dot"><i class="ti ${icon}" style="font-size:11px;color:#fff;"></i></div>
         <div style="flex:1;">
-          <div class="tl-text"><strong>${label}</strong>${activity.notes ? ` — ${activity.notes}` : ''}</div>
+          <div class="tl-text"><strong>${label}</strong>${personName ? ` with ${personName}` : ''}${activity.notes ? ` — ${activity.notes}` : ''}</div>
           <div class="tl-date">Just now</div>
         </div>`;
       list.insertBefore(item, list.firstChild);
@@ -1115,6 +1124,7 @@ async function submitLogActivity(companyId) {
     // Reset and close form
     if (notesEl) notesEl.value = '';
     typeEl.value = 'call';
+    if (personEl) personEl.value = '';
     toggleLogActivity(companyId);
   } catch(e) {
     alert('Failed to save activity. Please try again.');
