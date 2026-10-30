@@ -338,8 +338,10 @@ async function renderDashboard() {
   const content = document.getElementById('main-content');
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
 
-  const [companies, funnel] = await Promise.all([fetchCompanies(), fetchFunnel()]);
-  const stats = await fetchDashboardStats().catch(() => ({ tasks_due_count: 0, tasks_due: [], stale_companies_count: 0, done_today_count: 0 }));
+  const [funnel, stats] = await Promise.all([
+    fetchFunnel(),
+    fetchDashboardStats().catch(() => ({ tasks_due_count: 0, tasks_due: [], stale_companies_count: 0, stale_companies: [], done_today_count: 0 }))
+  ]);
   const { counts } = funnel;
 
   const funnelHtml = `
@@ -347,11 +349,9 @@ async function renderDashboard() {
       ${STAGE_ORDER.map(stage => {
         const s = stageStyle(stage);
         const n = counts[stage] || 0;
-        const active = activeFunnelStage === stage;
         return `
-          <div class="funnel-tile ${active ? 'funnel-tile-active' : ''}"
-               style="--stage-bg:${s.bg};--stage-text:${s.text};--stage-dot:${s.dot};"
-               onclick="filterByStage('${stage}')">
+          <div class="funnel-tile" style="--stage-bg:${s.bg};--stage-text:${s.text};--stage-dot:${s.dot};cursor:pointer;"
+               onclick="switchView('companies')">
             <div class="funnel-dot"></div>
             <div class="funnel-stage">${stage}</div>
             <div class="funnel-count">${n}</div>
@@ -361,10 +361,6 @@ async function renderDashboard() {
       }).join('<div class="funnel-arrow"><i class="ti ti-chevron-right"></i></div>')}
     </div>
   `;
-
-  const filtered = activeFunnelStage
-    ? companies.filter(c => c.stage === activeFunnelStage)
-    : companies;
 
   // Actionable tiles — things you can do, not just numbers
   const actionTilesHtml = `
@@ -391,22 +387,13 @@ async function renderDashboard() {
     </div>
   `;
 
-  const stageLabel = activeFunnelStage
-    ? `<div class="section-label" style="display:flex;align-items:center;gap:8px;">
-         ${activeFunnelStage} <button class="clear-filter" onclick="filterByStage(null)"><i class="ti ti-x"></i> Clear</button>
-       </div>`
-    : `<div class="section-label">All companies</div>`;
-
-  const cardsHtml = filtered.length === 0
-    ? `<div class="empty-state" style="height:200px;"><i class="ti ti-building-off"></i><p>No companies in this stage</p></div>`
-    : `<div class="cards-grid">${filtered.map(c => companyCardHtml(c, true)).join('')}</div>`;
-
+  // Overdue tasks section
   const dueTasks = stats.tasks_due || [];
   const dueTasksHtml = dueTasks.length === 0 ? '' : `
-    <div class="section-label" style="margin-top:18px;display:flex;align-items:center;gap:6px;">
+    <div class="section-label" style="margin-top:20px;display:flex;align-items:center;gap:6px;">
       <i class="ti ti-alert-circle" style="color:#A32D2D;font-size:13px;"></i> Overdue / due today
     </div>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;">
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
       ${dueTasks.map(t => {
         const co = t.companies;
         const avatarHtml = co
@@ -428,7 +415,33 @@ async function renderDashboard() {
     </div>
   `;
 
-  content.innerHTML = funnelHtml + actionTilesHtml + dueTasksHtml + stageLabel + cardsHtml;
+  // Gone cold companies section
+  const coldCos = stats.stale_companies || [];
+  const coldHtml = coldCos.length === 0 ? '' : `
+    <div class="section-label" style="margin-top:20px;display:flex;align-items:center;gap:6px;">
+      <i class="ti ti-building-off" style="color:#854F0B;font-size:13px;"></i> Gone cold — no touch in 30 days
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+      ${coldCos.map(c => `
+        <div class="company-card" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="openCompanyDetail('${c.id}')">
+          <div class="company-avatar ${c.avatar_color}" style="width:28px;height:28px;font-size:11px;flex-shrink:0;">${c.initials}</div>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${c.name}</div>
+            <div style="font-size:11px;color:#a09e97;margin-top:1px;">${c.industry || ''}${c.location ? ' · ' + c.location : ''}</div>
+          </div>
+          <div style="font-size:11px;font-weight:500;color:#854F0B;background:#FEF3C7;padding:3px 8px;border-radius:20px;">Gone cold</div>
+        </div>`).join('')}
+    </div>
+  `;
+
+  const allClearHtml = (dueTasks.length === 0 && coldCos.length === 0) ? `
+    <div style="margin-top:20px;padding:20px;background:#fff;border:1px solid #e8e6df;border-radius:12px;text-align:center;color:#0F6E56;">
+      <i class="ti ti-circle-check" style="font-size:24px;margin-bottom:8px;display:block;"></i>
+      <div style="font-size:14px;font-weight:500;">All clear — nothing needs attention right now.</div>
+    </div>
+  ` : '';
+
+  content.innerHTML = funnelHtml + actionTilesHtml + dueTasksHtml + coldHtml + allClearHtml;
 }
 
 function filterByStage(stage) {

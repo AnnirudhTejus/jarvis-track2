@@ -92,12 +92,19 @@ def get_dashboard_stats():
         [r["company_id"] for r in recent_notes.data if r.get("company_id")]
     )
     all_active_ids = {r["company_id"] for r in active_cos.data}
-    stale_count = len(all_active_ids - engaged_ids)
+    stale_ids = all_active_ids - engaged_ids
+
+    # fetch stale company details
+    stale_companies = []
+    if stale_ids:
+        stale_result = supabase.table("companies").select("id, name, initials, avatar_color, industry, location").in_("id", list(stale_ids)).execute()
+        stale_companies = stale_result.data
 
     return {
         "tasks_due_count": len(tasks.data),
         "tasks_due": tasks.data,
-        "stale_companies_count": stale_count,
+        "stale_companies_count": len(stale_ids),
+        "stale_companies": stale_companies,
         "done_today_count": 0,
     }
 
