@@ -60,7 +60,7 @@ def get_companies():
 def get_dashboard_stats():
     from datetime import date
     today = date.today().isoformat()
-    tasks = supabase.table("tasks").select("*, companies(name)").eq("status", "pending").lte("due_date", today).execute()
+    tasks = supabase.table("tasks").select("*, companies(name, initials, avatar_color)").eq("status", "pending").lte("due_date", today).execute()
     return {
         "tasks_due_count": len(tasks.data),
         "tasks_due": tasks.data,
