@@ -561,6 +561,9 @@ async function openCompanyDetail(id) {
   const details = await fetchCompanyDetails(id);
   const c = details.company;
   const s = stageStyle(details.stage);
+  // Cache people for this company so activity typeahead can reference them
+  window._companyPeople = window._companyPeople || {};
+  window._companyPeople[id] = details.people || [];
 
   const peopleHtml = details.people.length
     ? details.people.map(p => `
@@ -685,10 +688,14 @@ async function openCompanyDetail(id) {
                 <option value="whatsapp">💬 WhatsApp</option>
                 <option value="other">📌 Other</option>
               </select>
-              <select id="activity-person-${c.id}" class="inline-input" style="margin-bottom:6px;">
-                <option value="">— With whom? (optional)</option>
-                ${details.people.map(p => `<option value="${p.id}">${p.full_name}${p.role ? ` · ${p.role}` : ''}</option>`).join('')}
-              </select>
+              <!-- With whom — typeahead + add new -->
+              <div style="position:relative;margin-bottom:6px;">
+                <input id="activity-person-input-${c.id}" class="inline-input" placeholder="With whom? *" autocomplete="off"
+                  oninput="onPersonInput('${c.id}', this.value)"
+                  onblur="setTimeout(()=>hidePersonSuggestions('${c.id}'),200)"/>
+                <input type="hidden" id="activity-person-id-${c.id}" value=""/>
+                <div id="activity-person-suggestions-${c.id}" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #e8e4dc;border-radius:8px;z-index:100;max-height:160px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.08);"></div>
+              </div>
               <input type="date" id="activity-date-${c.id}" class="inline-input" style="margin-bottom:6px;" value="${new Date().toISOString().split('T')[0]}"/>
               <textarea id="activity-notes-${c.id}" class="inline-input" rows="2" placeholder="Notes (optional)…" style="resize:none;"></textarea>
               <div style="display:flex;gap:6px;margin-top:8px;">
@@ -794,15 +801,21 @@ async function openPersonDetail(id) {
     : `<span style="font-size:13px;color:#a09e97;">No company on record</span>`;
 
   // ── Tab: Activity ───────────────────────────────────────────────────────────
-  const activitiesHtml = (details.activities || []).map(a => `
+  const _actIcons  = { call: 'ti-phone', meeting: 'ti-users', email: 'ti-mail', whatsapp: 'ti-brand-whatsapp', other: 'ti-activity' };
+  const _actLabels = { call: 'Call', meeting: 'Meeting', email: 'Email', whatsapp: 'WhatsApp', other: 'Activity' };
+  const activitiesHtml = (details.activities || []).map(a => {
+    const icon  = _actIcons[a.activity_type]  || 'ti-activity';
+    const label = _actLabels[a.activity_type] || 'Activity';
+    const company = a.company_name ? ` · ${a.company_name}` : '';
+    return `
     <div class="tl-item">
-      <div class="tl-dot" style="background:${a.color || '#7F77DD'};"></div>
-      <div>
-        <div class="tl-text">${a.text}</div>
+      <div class="tl-dot"><i class="ti ${icon}" style="font-size:11px;color:#fff;"></i></div>
+      <div style="flex:1;">
+        <div class="tl-text"><strong>${label}</strong>${company}${a.notes ? ` — ${a.notes}` : ''}</div>
         <div class="tl-date">${timeAgo(a.activity_date)}</div>
       </div>
-    </div>
-  `).join('') || '<div class="empty-mini">No activity recorded yet.</div>';
+    </div>`;
+  }).join('') || '<div class="empty-mini">No activity recorded yet.</div>';
 
   // Employment history inside activity tab
   const historyHtml = (details.history || []).length
@@ -1125,22 +1138,113 @@ function toggleLogActivity(companyId) {
   form.style.display = form.style.display === 'none' ? 'block' : 'none';
 }
 
+// ─── Activity "with whom" typeahead ───────────────────────────────────────────
+function onPersonInput(companyId, value) {
+  const hiddenEl = document.getElementById(`activity-person-id-${companyId}`);
+  hiddenEl.value = ''; // clear selection when typing
+  const suggestionsEl = document.getElementById(`activity-person-suggestions-${companyId}`);
+  const people = (window._companyPeople && window._companyPeople[companyId]) || [];
+  const q = value.trim().toLowerCase();
+  if (!q) { suggestionsEl.style.display = 'none'; return; }
+
+  const matches = people.filter(p => p.full_name.toLowerCase().includes(q));
+  const items = matches.map(p => `
+    <div style="padding:8px 12px;cursor:pointer;font-size:13px;color:#2c2c2a;border-bottom:1px solid #f0ede6;"
+      onmousedown="selectPersonSuggestion('${companyId}','${p.id}',${JSON.stringify(p.full_name)})">
+      ${p.full_name}${p.role ? `<span style="color:#a09e97;font-size:12px;"> · ${p.role}</span>` : ''}
+    </div>`).join('');
+
+  const addNew = `
+    <div style="padding:8px 12px;cursor:pointer;font-size:13px;color:#7F77DD;font-weight:500;"
+      onmousedown="promptAddNewContact('${companyId}',${JSON.stringify(value.trim())})">
+      <i class="ti ti-user-plus" style="margin-right:4px;"></i> Add "${value.trim()}" as new contact
+    </div>`;
+
+  suggestionsEl.innerHTML = items + addNew;
+  suggestionsEl.style.display = 'block';
+}
+
+function selectPersonSuggestion(companyId, personId, personName) {
+  document.getElementById(`activity-person-input-${companyId}`).value = personName;
+  document.getElementById(`activity-person-id-${companyId}`).value = personId;
+  hidePersonSuggestions(companyId);
+}
+
+function hidePersonSuggestions(companyId) {
+  const el = document.getElementById(`activity-person-suggestions-${companyId}`);
+  if (el) el.style.display = 'none';
+}
+
+async function promptAddNewContact(companyId, name) {
+  hidePersonSuggestions(companyId);
+  const confirmed = confirm(`Add "${name}" as a new contact at this company?`);
+  if (!confirmed) return;
+
+  const res = await fetch('/api/people', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ full_name: name, company_id: companyId }),
+  });
+  if (!res.ok) { alert('Failed to create contact.'); return; }
+  const person = await res.json();
+
+  // Add to cache so subsequent lookups find them
+  window._companyPeople = window._companyPeople || {};
+  window._companyPeople[companyId] = window._companyPeople[companyId] || [];
+  window._companyPeople[companyId].push({ id: person.id, full_name: name, role: null });
+
+  // Select them in the field
+  selectPersonSuggestion(companyId, person.id, name);
+
+  // Also prepend to the contacts list in DOM
+  const list = document.getElementById(`people-list-${companyId}`);
+  if (list) {
+    const empty = list.querySelector('.empty-mini');
+    if (empty) empty.remove();
+    const row = document.createElement('div');
+    row.className = 'person-row clickable-row';
+    row.onclick = () => openPersonDetail(person.id);
+    row.innerHTML = `
+      <div class="p-avatar av-purple">${getInitials(name)}</div>
+      <div style="flex:1;"><div class="p-name">${name}</div><div class="p-meta">New contact</div></div>`;
+    list.insertBefore(row, list.firstChild);
+  }
+}
+
 async function submitLogActivity(companyId) {
-  const typeEl   = document.getElementById(`activity-type-${companyId}`);
-  const personEl = document.getElementById(`activity-person-${companyId}`);
-  const dateEl   = document.getElementById(`activity-date-${companyId}`);
-  const notesEl  = document.getElementById(`activity-notes-${companyId}`);
+  const typeEl    = document.getElementById(`activity-type-${companyId}`);
+  const inputEl   = document.getElementById(`activity-person-input-${companyId}`);
+  const personIdEl = document.getElementById(`activity-person-id-${companyId}`);
+  const dateEl    = document.getElementById(`activity-date-${companyId}`);
+  const notesEl   = document.getElementById(`activity-notes-${companyId}`);
   if (!typeEl || !dateEl) return;
 
-  const personId   = personEl ? (personEl.value || null) : null;
-  const personName = personEl && personEl.value ? personEl.options[personEl.selectedIndex].text : null;
+  // Validate — person is mandatory
+  const personId   = personIdEl ? personIdEl.value.trim() : '';
+  const personName = inputEl ? inputEl.value.trim() : '';
+  if (!personId) {
+    if (inputEl) { inputEl.style.borderColor = '#e74c3c'; inputEl.focus(); }
+    // If they typed a name but didn't select, prompt to add
+    if (personName) {
+      await promptAddNewContact(companyId, personName);
+      // After add, try again if person was created
+      const newId = personIdEl ? personIdEl.value.trim() : '';
+      if (!newId) return;
+    } else {
+      return;
+    }
+  }
+
+  const finalPersonId = personIdEl ? personIdEl.value.trim() : '';
+  const finalPersonName = inputEl ? inputEl.value.trim() : '';
+  if (inputEl) inputEl.style.borderColor = '';
 
   const payload = {
     company_id: companyId,
     activity_type: typeEl.value,
     activity_date: dateEl.value || new Date().toISOString().split('T')[0],
     notes: notesEl ? notesEl.value.trim() || null : null,
-    person_id: personId,
+    person_id: finalPersonId || null,
   };
 
   try {
@@ -1166,7 +1270,7 @@ async function submitLogActivity(companyId) {
       item.innerHTML = `
         <div class="tl-dot"><i class="ti ${icon}" style="font-size:11px;color:#fff;"></i></div>
         <div style="flex:1;">
-          <div class="tl-text"><strong>${label}</strong>${personName ? ` with ${personName}` : ''}${activity.notes ? ` — ${activity.notes}` : ''}</div>
+          <div class="tl-text"><strong>${label}</strong>${finalPersonName ? ` with ${finalPersonName}` : ''}${activity.notes ? ` — ${activity.notes}` : ''}</div>
           <div class="tl-date">Just now</div>
         </div>`;
       list.insertBefore(item, list.firstChild);
@@ -1175,7 +1279,8 @@ async function submitLogActivity(companyId) {
     // Reset and close form
     if (notesEl) notesEl.value = '';
     typeEl.value = 'call';
-    if (personEl) personEl.value = '';
+    if (inputEl) inputEl.value = '';
+    if (personIdEl) personIdEl.value = '';
     toggleLogActivity(companyId);
   } catch(e) {
     alert('Failed to save activity. Please try again.');

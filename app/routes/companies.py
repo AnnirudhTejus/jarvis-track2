@@ -321,7 +321,7 @@ def get_person_detail(person_id: str):
     def q_notes():
         return supabase.table("notes").select("*").eq("person_id", person_id).eq("archived", False).order("created_at", desc=True).execute()
     def q_activities():
-        return supabase.table("activities").select("*").eq("person_id", person_id).order("activity_date", desc=True).execute()
+        return supabase.table("activities").select("*, companies(name)").eq("person_id", person_id).order("activity_date", desc=True).execute()
     def q_tasks():
         return supabase.table("tasks").select("*").eq("person_id", person_id).order("due_date").execute()
 
@@ -349,7 +349,10 @@ def get_person_detail(person_id: str):
         "current_company": current.get("companies") if current else None,
         "history": history.data,
         "notes": notes.data,
-        "activities": activities.data,
+        "activities": [
+            {**a, "company_name": (a.get("companies") or {}).get("name")}
+            for a in activities.data
+        ],
         "tasks": tasks.data,
     }
 
