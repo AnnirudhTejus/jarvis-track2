@@ -878,6 +878,13 @@ async function openPersonDetail(id) {
     </div>
   `;
 
+  // Store person data for edit modal (avoids passing via onclick attributes)
+  window._editPersonData = window._editPersonData || {};
+  window._editPersonData[p.id] = {
+    name: p.full_name, email: p.email||'', phone: p.phone||'',
+    linkedin: p.linkedin||'', role: details.current_role||''
+  };
+
   content.innerHTML = `
     <div class="detail-page">
       <button class="back-btn" onclick="goBack()"><i class="ti ti-arrow-left"></i> Back</button>
@@ -894,7 +901,7 @@ async function openPersonDetail(id) {
           </div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <button class="add-inline-btn" onclick="showEditPersonModal('${p.id}',${JSON.stringify(p.full_name)},${JSON.stringify(p.email||'')},${JSON.stringify(p.phone||'')},${JSON.stringify(p.linkedin||'')},${JSON.stringify(details.current_role||'')})"><i class="ti ti-pencil"></i></button>
+          <button class="add-inline-btn" id="edit-person-btn-${p.id}" onclick="showEditPersonModal('${p.id}')"><i class="ti ti-pencil"></i></button>
           <button class="add-inline-btn" style="color:#c0392b;" onclick="archivePerson('${p.id}')"><i class="ti ti-archive"></i></button>
         </div>
       </div>
@@ -1417,6 +1424,7 @@ async function submitEditCompany(id) {
     });
     if (!res.ok) throw new Error('Failed');
     closeModal();
+    _currentDetail = null; // prevent double-stacking on reload
     openCompanyDetail(id); // reload detail
   } catch(e) {
     alert('Failed to save.');
@@ -1425,7 +1433,8 @@ async function submitEditCompany(id) {
 }
 
 // ─── Edit person ──────────────────────────────────────────────────────────────
-function showEditPersonModal(id, name, email, phone, linkedin, role) {
+function showEditPersonModal(id) {
+  const d = (window._editPersonData && window._editPersonData[id]) || {};
   showModal(`
     <div style="font-size:17px;font-weight:700;margin-bottom:18px;">Edit contact</div>
     <div style="display:flex;flex-direction:column;gap:10px;">
@@ -1440,12 +1449,12 @@ function showEditPersonModal(id, name, email, phone, linkedin, role) {
       <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
     </div>
   `);
-  // Set values via JS to safely handle quotes, apostrophes, special chars
-  document.getElementById('ep-name').value    = name     || '';
-  document.getElementById('ep-role').value    = role     || '';
-  document.getElementById('ep-email').value   = email    || '';
-  document.getElementById('ep-phone').value   = phone    || '';
-  document.getElementById('ep-linkedin').value = linkedin || '';
+  document.getElementById('ep-name').value     = d.name     || '';
+  document.getElementById('ep-role').value     = d.role     || '';
+  document.getElementById('ep-email').value    = d.email    || '';
+  document.getElementById('ep-phone').value    = d.phone    || '';
+  document.getElementById('ep-linkedin').value = d.linkedin || '';
+  document.getElementById('ep-name').focus();
 }
 
 async function submitEditPerson(id) {
@@ -1467,6 +1476,7 @@ async function submitEditPerson(id) {
     });
     if (!res.ok) throw new Error('Failed');
     closeModal();
+    _currentDetail = null; // prevent double-stacking on reload
     openPersonDetail(id); // reload
   } catch(e) {
     alert('Failed to save.');
