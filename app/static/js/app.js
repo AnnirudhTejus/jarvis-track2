@@ -85,6 +85,7 @@ async function fetchDashboardStats() {
 
 async function fetchPersonDetails(id) {
   const res = await fetch(`/api/people/${id}`);
+  if (!res.ok) return null;
   return await res.json();
 }
 
@@ -471,6 +472,10 @@ async function openPersonDetail(id) {
   content.innerHTML = '<div class="empty-state"><i class="ti ti-loader ti-spin"></i><p>Loading…</p></div>';
 
   const details = await fetchPersonDetails(id);
+  if (!details || !details.person) {
+    content.innerHTML = '<div class="empty-state"><i class="ti ti-user-off"></i><p>Person not found.</p></div>';
+    return;
+  }
   const p = details.person;
 
   // ── Derived counts ──────────────────────────────────────────────────────────
