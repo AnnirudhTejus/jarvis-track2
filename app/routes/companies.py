@@ -58,13 +58,46 @@ def get_companies():
 
 @router.get("/dashboard/stats")
 def get_dashboard_stats():
-    from datetime import date
+    from datetime import date, timedelta
     today = date.today().isoformat()
-    tasks = supabase.table("tasks").select("*, companies(name, initials, avatar_color)").eq("status", "pending").lte("due_date", today).execute()
+    cutoff = (date.today() - timedelta(days=30)).isoformat()
+
+    def q_tasks():
+        return supabase.table("tasks").select("*, companies(name, initials, avatar_color)").eq("status", "pending").lte("due_date", today).execute()
+
+    def q_active_companies():
+        return supabase.table("engagements").select("company_id").eq("status", "active").execute()
+
+    def q_recent_activity():
+        # companies that have had any activity in last 30 days
+        return supabase.table("activities").select("company_id").gte("activity_date", cutoff).execute()
+
+    def q_recent_notes():
+        return supabase.table("notes").select("company_id").gte("created_at", cutoff).eq("archived", False).execute()
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        f_tasks    = ex.submit(q_tasks)
+        f_active   = ex.submit(q_active_companies)
+        f_activity = ex.submit(q_recent_activity)
+        f_notes    = ex.submit(q_recent_notes)
+
+    tasks          = f_tasks.result()
+    active_cos     = f_active.result()
+    recent_act     = f_activity.result()
+    recent_notes   = f_notes.result()
+
+    # companies with activity or notes in last 30d
+    engaged_ids = set(
+        [r["company_id"] for r in recent_act.data if r.get("company_id")] +
+        [r["company_id"] for r in recent_notes.data if r.get("company_id")]
+    )
+    all_active_ids = {r["company_id"] for r in active_cos.data}
+    stale_count = len(all_active_ids - engaged_ids)
+
     return {
         "tasks_due_count": len(tasks.data),
         "tasks_due": tasks.data,
-        "stale_companies_count": 0,
+        "stale_companies_count": stale_count,
         "done_today_count": 0,
     }
 
