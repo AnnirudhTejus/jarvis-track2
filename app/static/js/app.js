@@ -401,7 +401,34 @@ async function renderDashboard() {
     ? `<div class="empty-state" style="height:200px;"><i class="ti ti-building-off"></i><p>No companies in this stage</p></div>`
     : `<div class="cards-grid">${filtered.map(c => companyCardHtml(c, true)).join('')}</div>`;
 
-  content.innerHTML = funnelHtml + actionTilesHtml + stageLabel + cardsHtml;
+  const dueTasks = stats.tasks_due || [];
+  const dueTasksHtml = dueTasks.length === 0 ? '' : `
+    <div class="section-label" style="margin-top:18px;display:flex;align-items:center;gap:6px;">
+      <i class="ti ti-alert-circle" style="color:#A32D2D;font-size:13px;"></i> Overdue / due today
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;">
+      ${dueTasks.map(t => {
+        const co = t.companies;
+        const avatarHtml = co
+          ? `<div class="company-avatar ${co.avatar_color}" style="width:28px;height:28px;font-size:11px;flex-shrink:0;">${co.initials}</div>`
+          : `<div class="company-avatar av-purple" style="width:28px;height:28px;font-size:11px;flex-shrink:0;">?</div>`;
+        const subLabel = co ? co.name : 'Personal task';
+        const clickAttr = co ? `onclick="openCompanyDetail('${t.company_id}')"` : '';
+        const di = dueDateLabel(t.due_date);
+        return `
+        <div class="company-card" style="display:flex;align-items:center;gap:10px;padding:10px 14px;${co ? 'cursor:pointer;' : ''}" ${clickAttr}>
+          ${avatarHtml}
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:500;color:#2c2c2a;">${t.text}</div>
+            <div style="font-size:11px;color:#a09e97;margin-top:1px;">${subLabel}</div>
+          </div>
+          ${di ? `<div class="task-due ${di.cls}">${di.label}</div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+
+  content.innerHTML = funnelHtml + actionTilesHtml + dueTasksHtml + stageLabel + cardsHtml;
 }
 
 function filterByStage(stage) {
