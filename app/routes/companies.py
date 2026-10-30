@@ -190,6 +190,19 @@ def complete_task(task_id: str):
     return result.data[0] if result.data else {"id": task_id, "status": "done"}
 
 
+# ── Task edit ─────────────────────────────────────────────────────────────────
+
+class TaskEditIn(BaseModel):
+    text: str
+    due_date: Optional[str] = None
+
+@router.patch("/tasks/{task_id}")
+def edit_task(task_id: str, body: TaskEditIn):
+    update = {"text": body.text, "due_date": body.due_date}
+    result = supabase.table("tasks").update(update).eq("id", task_id).execute()
+    return result.data[0] if result.data else {"id": task_id}
+
+
 # ── Stage change ───────────────────────────────────────────────────────────────
 
 class StageIn(BaseModel):

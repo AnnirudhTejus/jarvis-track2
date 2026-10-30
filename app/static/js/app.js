@@ -119,17 +119,59 @@ async function postPerson(data) {
 // ─── Task helpers ─────────────────────────────────────────────────────────────
 function taskItemHtml(t, isDone = false) {
   const due = dueDateLabel(t.due_date);
+  const dueDateVal = t.due_date ? t.due_date.slice(0,10) : '';
   return `
     <div class="task-item" id="task-${t.id}" style="${isDone ? 'opacity:0.5;' : ''}">
       <div class="task-box${isDone ? ' task-box-done' : ''}"
            onclick="${isDone ? '' : `markTaskDone('${t.id}')`}"
            style="${isDone ? 'background:#7F77DD;border-color:#7F77DD;cursor:default;' : ''}"></div>
       <div style="flex:1;">
-        <div class="task-text" style="${isDone ? 'text-decoration:line-through;color:#a09e97;' : ''}">${t.text}</div>
-        ${due ? `<div class="task-due ${due.cls}">${due.label}</div>` : ''}
+        <div id="task-view-${t.id}">
+          <div class="task-text" style="${isDone ? 'text-decoration:line-through;color:#a09e97;' : ''}">${t.text}</div>
+          ${due ? `<div class="task-due ${due.cls}">${due.label}</div>` : ''}
+        </div>
+        <div id="task-edit-${t.id}" style="display:none;">
+          <input type="text" id="task-edit-text-${t.id}" value="${t.text.replace(/"/g,'&quot;')}" class="inline-input" style="margin-bottom:5px;"/>
+          <input type="date" id="task-edit-date-${t.id}" value="${dueDateVal}" class="inline-input" style="margin-bottom:6px;"/>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="saveTaskEdit('${t.id}')">Save</button>
+            <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;" onclick="cancelTaskEdit('${t.id}')">Cancel</button>
+          </div>
+        </div>
       </div>
+      ${!isDone ? `<button onclick="startTaskEdit('${t.id}')" style="background:none;border:none;cursor:pointer;color:#c8c6be;padding:4px;font-size:13px;" title="Edit"><i class="ti ti-pencil"></i></button>` : ''}
     </div>
   `;
+}
+
+function startTaskEdit(id) {
+  document.getElementById(`task-view-${id}`).style.display = 'none';
+  document.getElementById(`task-edit-${id}`).style.display = 'block';
+  document.getElementById(`task-edit-text-${id}`).focus();
+}
+
+function cancelTaskEdit(id) {
+  document.getElementById(`task-edit-${id}`).style.display = 'none';
+  document.getElementById(`task-view-${id}`).style.display = 'block';
+}
+
+async function saveTaskEdit(id) {
+  const text = document.getElementById(`task-edit-text-${id}`).value.trim();
+  const date = document.getElementById(`task-edit-date-${id}`).value;
+  if (!text) return;
+  await fetch(`/api/tasks/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, due_date: date || null })
+  });
+  // Update view in place
+  const viewEl = document.getElementById(`task-view-${id}`);
+  const due = date ? dueDateLabel(date) : null;
+  viewEl.innerHTML = `
+    <div class="task-text">${text}</div>
+    ${due ? `<div class="task-due ${due.cls}">${due.label}</div>` : ''}
+  `;
+  cancelTaskEdit(id);
 }
 
 function toggleDoneTasks(scopeId) {
