@@ -124,7 +124,7 @@ def get_company_details(company_id: str):
     def q_company():
         return supabase.table("companies").select("*").eq("id", company_id).single().execute()
     def q_people():
-        return supabase.table("person_company_history").select("*, people(*)").eq("company_id", company_id).eq("is_current", True).execute()
+        return supabase.table("person_company_history").select("*, people(*)").eq("company_id", company_id).eq("is_current", True).eq("people.archived", False).execute()
     def q_notes():
         return supabase.table("notes").select("*").eq("company_id", company_id).order("created_at", desc=True).execute()
     def q_activities():
@@ -451,3 +451,61 @@ def create_person(body: PersonIn):
         supabase.table("person_company_history").insert(history_row).execute()
 
     return person
+
+
+# ── Edit company ───────────────────────────────────────────────────────────────
+
+class CompanyEditIn(BaseModel):
+    name: str
+    industry: Optional[str] = None
+    location: Optional[str] = None
+    website: Optional[str] = None
+
+@router.patch("/companies/{company_id}")
+def edit_company(company_id: str, body: CompanyEditIn):
+    import re
+    words = [w for w in re.split(r'\s+', body.name) if w]
+    initials = ''.join(w[0] for w in words[:2]).upper()
+    update = {
+        "name": body.name,
+        "initials": initials,
+        "industry": body.industry,
+        "location": body.location,
+        "website": body.website,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    result = supabase.table("companies").update(update).eq("id", company_id).execute()
+    return result.data[0] if result.data else {"id": company_id}
+
+
+# ── Edit person ────────────────────────────────────────────────────────────────
+
+class PersonEditIn(BaseModel):
+    full_name: str
+    role: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin: Optional[str] = None
+
+@router.patch("/people/{person_id}")
+def edit_person(person_id: str, body: PersonEditIn):
+    update = {
+        "full_name": body.full_name,
+        "email": body.email,
+        "phone": body.phone,
+        "linkedin": body.linkedin,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    supabase.table("people").update(update).eq("id", person_id).execute()
+    # Update role in person_company_history if they have a current company
+    if body.role is not None:
+        supabase.table("person_company_history").update({"role": body.role}).eq("person_id", person_id).eq("is_current", True).execute()
+    return {"id": person_id}
+
+
+# ── Archive person ─────────────────────────────────────────────────────────────
+
+@router.patch("/people/{person_id}/archive")
+def archive_person(person_id: str):
+    result = supabase.table("people").update({"archived": True}).eq("id", person_id).execute()
+    return {"id": person_id, "archived": True}

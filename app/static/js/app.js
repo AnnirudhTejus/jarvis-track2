@@ -575,7 +575,7 @@ async function openCompanyDetail(id) {
           <i class="ti ti-chevron-right" style="color:#c8c6be;font-size:14px;margin-left:4px;"></i>
         </div>
       `).join('')
-    : '<div class="empty-mini">No contacts yet.</div>';
+    : '<div class="empty-mini" id="people-empty-${c.id}">No contacts yet.</div>';
 
   const pendingTasks = (details.tasks || []).filter(t => t.status !== 'done');
   const doneTasks = (details.tasks || []).filter(t => t.status === 'done');
@@ -629,6 +629,7 @@ async function openCompanyDetail(id) {
           <div style="font-size:20px;font-weight:700;color:#2c2c2a;">${c.name}</div>
           <div style="font-size:13px;color:#73726c;margin-top:3px;">${c.industry || ''}${c.location ? ' · ' + c.location : ''}</div>
         </div>
+        <button class="add-inline-btn" style="margin-right:8px;" onclick="showEditCompanyModal('${c.id}','${c.name}','${c.industry||''}','${c.location||''}','${c.website||''}')"><i class="ti ti-pencil"></i></button>
         <!-- Clickable stage badge with dropdown -->
         <div style="position:relative;">
           <span class="stage-pill-lg" id="company-stage-pill-${c.id}" style="background:${s.bg};color:${s.text};cursor:pointer;user-select:none;" onclick="toggleStageDropdown('${c.id}')">
@@ -651,8 +652,22 @@ async function openCompanyDetail(id) {
 
           <!-- People -->
           <div class="detail-section">
-            <div class="detail-section-title"><i class="ti ti-users"></i> Contacts</div>
-            <div>${peopleHtml}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <div class="detail-section-title" style="margin-bottom:0;"><i class="ti ti-users"></i> Contacts</div>
+              <button class="add-inline-btn" onclick="toggleAddContact('${c.id}')"><i class="ti ti-plus"></i> Add</button>
+            </div>
+            <div id="people-list-${c.id}">${peopleHtml}</div>
+            <!-- Add contact inline form -->
+            <div id="add-contact-form-${c.id}" style="display:none;" class="inline-form">
+              <input id="cp-name-${c.id}" class="inline-input" placeholder="Full name *" style="margin-bottom:6px;"/>
+              <input id="cp-role-${c.id}" class="inline-input" placeholder="Role/title" style="margin-bottom:6px;"/>
+              <input id="cp-email-${c.id}" class="inline-input" placeholder="Email" style="margin-bottom:6px;"/>
+              <input id="cp-phone-${c.id}" class="inline-input" placeholder="Phone"/>
+              <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn btn-primary" style="flex:1;font-size:12px;" onclick="submitAddContact('${c.id}')">Save</button>
+                <button class="btn btn-secondary" style="font-size:12px;" onclick="toggleAddContact('${c.id}')">Cancel</button>
+              </div>
+            </div>
           </div>
 
           <!-- Activity timeline -->
@@ -842,13 +857,17 @@ async function openPersonDetail(id) {
       <!-- Person header -->
       <div class="person-detail-header">
         <div class="p-avatar av-purple" style="width:52px;height:52px;font-size:19px;border-radius:50%;flex-shrink:0;">${getInitials(p.full_name)}</div>
-        <div class="person-header-meta">
+        <div class="person-header-meta" style="flex:1;">
           <div class="person-header-name">${p.full_name}</div>
           <div class="person-header-sub">
             ${companyChip}
             <span style="color:#d4d1c8;">·</span>
             ${lastSeenHtml}
           </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="add-inline-btn" onclick="showEditPersonModal('${p.id}',${JSON.stringify(p.full_name)},${JSON.stringify(p.email||'')},${JSON.stringify(p.phone||'')},${JSON.stringify(p.linkedin||'')},${JSON.stringify(details.current_role||'')})"><i class="ti ti-pencil"></i></button>
+          <button class="add-inline-btn" style="color:#c0392b;" onclick="archivePerson('${p.id}')"><i class="ti ti-archive"></i></button>
         </div>
       </div>
 
@@ -994,40 +1013,71 @@ function closeModal() {
   if (el) el.remove();
 }
 
+const SE_ASIA_COUNTRIES = ['Malaysia','Singapore','Indonesia','Thailand','Philippines','Vietnam','Brunei','Cambodia','Laos','Myanmar','Timor-Leste','Other'];
+const INDUSTRIES = ['Construction','Education','Energy','Finance','Fintech','Government','Healthcare','Hospitality','Legal','Logistics','Manufacturing','Media','Real Estate','Retail','Technology','Telecommunications','Other'];
+
 function showAddCompanyModal() {
+  // Merge DB industries with defaults (deduplicate, sort)
+  const dbIndustries = (window._knownIndustries || []);
+  const allIndustries = [...new Set([...INDUSTRIES, ...dbIndustries])].sort();
   showModal(`
-    <div style="font-size:17px;font-weight:700;margin-bottom:18px;">Add company</div>
+    <div style="font-size:17px;font-weight:700;margin-bottom:18px;">Add client</div>
     <div style="display:flex;flex-direction:column;gap:10px;">
       <input id="mc-name" class="inline-input" placeholder="Company name *" autofocus/>
-      <input id="mc-industry" class="inline-input" placeholder="Industry"/>
-      <input id="mc-location" class="inline-input" placeholder="Location"/>
-      <input id="mc-website" class="inline-input" placeholder="Website"/>
+      <select id="mc-industry" class="inline-input">
+        <option value="">Industry (optional)</option>
+        ${allIndustries.map(i => `<option value="${i}">${i}</option>`).join('')}
+        <option value="__custom__">+ Add new industry…</option>
+      </select>
+      <input id="mc-industry-custom" class="inline-input" placeholder="Enter industry name" style="display:none;"/>
+      <select id="mc-country" class="inline-input">
+        <option value="">Country (optional)</option>
+        ${SE_ASIA_COUNTRIES.map(c => `<option value="${c}">${c}</option>`).join('')}
+      </select>
+      <input id="mc-website" class="inline-input" placeholder="Website (optional)"/>
       <select id="mc-stage" class="inline-input">
         ${['Funnel','Pipeline','Prospect','Lead','Client'].map(s => `<option value="${s}">${s}</option>`).join('')}
       </select>
     </div>
     <div style="display:flex;gap:8px;margin-top:18px;">
-      <button class="btn btn-primary" style="flex:1;" onclick="submitAddCompany()">Add company</button>
+      <button class="btn btn-primary" style="flex:1;" onclick="submitAddCompany()">Add client</button>
       <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
     </div>
   `);
+  // Show/hide custom industry input
+  document.getElementById('mc-industry').addEventListener('change', function() {
+    const custom = document.getElementById('mc-industry-custom');
+    custom.style.display = this.value === '__custom__' ? 'block' : 'none';
+    if (this.value === '__custom__') custom.focus();
+  });
 }
 
 async function submitAddCompany() {
   const name = document.getElementById('mc-name').value.trim();
   if (!name) { document.getElementById('mc-name').focus(); return; }
+  const industryEl = document.getElementById('mc-industry');
+  let industry = industryEl.value === '__custom__'
+    ? (document.getElementById('mc-industry-custom').value.trim() || null)
+    : (industryEl.value || null);
+  // Cache new industry for future modals
+  if (industry && !INDUSTRIES.includes(industry)) {
+    window._knownIndustries = window._knownIndustries || [];
+    if (!window._knownIndustries.includes(industry)) window._knownIndustries.push(industry);
+  }
   const btn = document.querySelector('#modal-overlay .btn-primary');
   btn.textContent = 'Saving…'; btn.disabled = true;
-  await postCompany({
+  const company = await postCompany({
     name,
-    industry: document.getElementById('mc-industry').value.trim() || null,
-    location: document.getElementById('mc-location').value.trim() || null,
+    industry,
+    location: document.getElementById('mc-country').value || null,
     website: document.getElementById('mc-website').value.trim() || null,
     stage: document.getElementById('mc-stage').value,
   });
   closeModal();
   if (currentView === 'dashboard') renderDashboard();
   else if (currentView === 'companies') renderCompanies();
+  // Open the new company detail so user can add people immediately
+  if (company && company.id) setTimeout(() => openCompanyDetail(company.id), 400);
 }
 
 function showAddPersonModal() {
@@ -1129,6 +1179,178 @@ async function submitLogActivity(companyId) {
     toggleLogActivity(companyId);
   } catch(e) {
     alert('Failed to save activity. Please try again.');
+  }
+}
+
+// ─── Add contact (inline in company detail) ───────────────────────────────────
+function toggleAddContact(companyId) {
+  const form = document.getElementById(`add-contact-form-${companyId}`);
+  if (!form) return;
+  const visible = form.style.display !== 'none';
+  form.style.display = visible ? 'none' : 'block';
+  if (!visible) document.getElementById(`cp-name-${companyId}`)?.focus();
+}
+
+async function submitAddContact(companyId) {
+  const name = document.getElementById(`cp-name-${companyId}`)?.value.trim();
+  if (!name) { document.getElementById(`cp-name-${companyId}`)?.focus(); return; }
+  const role  = document.getElementById(`cp-role-${companyId}`)?.value.trim() || null;
+  const email = document.getElementById(`cp-email-${companyId}`)?.value.trim() || null;
+  const phone = document.getElementById(`cp-phone-${companyId}`)?.value.trim() || null;
+  try {
+    const res = await fetch('/api/people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ full_name: name, role, email, phone, company_id: companyId }),
+    });
+    if (!res.ok) throw new Error('Failed');
+    const person = await res.json();
+    // Prepend to people list in DOM
+    const list = document.getElementById(`people-list-${companyId}`);
+    if (list) {
+      const empty = list.querySelector('.empty-mini');
+      if (empty) empty.remove();
+      const row = document.createElement('div');
+      row.className = 'person-row clickable-row';
+      row.onclick = () => openPersonDetail(person.id);
+      row.innerHTML = `
+        <div class="p-avatar av-purple">${getInitials(name)}</div>
+        <div style="flex:1;">
+          <div class="p-name">${name}</div>
+          <div class="p-role">${role || '—'}</div>
+        </div>
+        ${email ? `<a href="mailto:${email}" onclick="event.stopPropagation();" class="icon-link"><i class="ti ti-mail"></i></a>` : ''}
+        ${phone ? `<a href="tel:${phone}" onclick="event.stopPropagation();" class="icon-link"><i class="ti ti-phone"></i></a>` : ''}
+        <i class="ti ti-chevron-right" style="color:#c8c6be;font-size:14px;margin-left:4px;"></i>`;
+      list.appendChild(row);
+    }
+    // Reset form
+    ['cp-name','cp-role','cp-email','cp-phone'].forEach(id => {
+      const el = document.getElementById(`${id}-${companyId}`);
+      if (el) el.value = '';
+    });
+    toggleAddContact(companyId);
+  } catch(e) {
+    alert('Failed to add contact.');
+  }
+}
+
+// ─── Edit company ─────────────────────────────────────────────────────────────
+function showEditCompanyModal(id, name, industry, location, website) {
+  const allIndustries = [...new Set([...INDUSTRIES, ...(window._knownIndustries || [])])].sort();
+  showModal(`
+    <div style="font-size:17px;font-weight:700;margin-bottom:18px;">Edit company</div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <input id="ec-name" class="inline-input" placeholder="Company name *" value="${name}"/>
+      <select id="ec-industry" class="inline-input">
+        <option value="">Industry (optional)</option>
+        ${allIndustries.map(i => `<option value="${i}" ${i===industry?'selected':''}>${i}</option>`).join('')}
+        <option value="__custom__">+ Add new industry…</option>
+      </select>
+      <input id="ec-industry-custom" class="inline-input" placeholder="Enter industry name" style="display:none;"/>
+      <select id="ec-country" class="inline-input">
+        <option value="">Country (optional)</option>
+        ${SE_ASIA_COUNTRIES.map(c => `<option value="${c}" ${c===location?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <input id="ec-website" class="inline-input" placeholder="Website" value="${website}"/>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:18px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="submitEditCompany('${id}')">Save</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+  document.getElementById('ec-industry').addEventListener('change', function() {
+    const custom = document.getElementById('ec-industry-custom');
+    custom.style.display = this.value === '__custom__' ? 'block' : 'none';
+    if (this.value === '__custom__') custom.focus();
+  });
+}
+
+async function submitEditCompany(id) {
+  const name = document.getElementById('ec-name').value.trim();
+  if (!name) return;
+  const industryEl = document.getElementById('ec-industry');
+  let industry = industryEl.value === '__custom__'
+    ? (document.getElementById('ec-industry-custom').value.trim() || null)
+    : (industryEl.value || null);
+  if (industry && !INDUSTRIES.includes(industry)) {
+    window._knownIndustries = window._knownIndustries || [];
+    if (!window._knownIndustries.includes(industry)) window._knownIndustries.push(industry);
+  }
+  const btn = document.querySelector('#modal-overlay .btn-primary');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  try {
+    const res = await fetch(`/api/companies/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        industry,
+        location: document.getElementById('ec-country').value || null,
+        website: document.getElementById('ec-website').value.trim() || null,
+      }),
+    });
+    if (!res.ok) throw new Error('Failed');
+    closeModal();
+    openCompanyDetail(id); // reload detail
+  } catch(e) {
+    alert('Failed to save.');
+    btn.textContent = 'Save'; btn.disabled = false;
+  }
+}
+
+// ─── Edit person ──────────────────────────────────────────────────────────────
+function showEditPersonModal(id, name, email, phone, linkedin, role) {
+  showModal(`
+    <div style="font-size:17px;font-weight:700;margin-bottom:18px;">Edit contact</div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <input id="ep-name" class="inline-input" placeholder="Full name *" value="${name||''}"/>
+      <input id="ep-role" class="inline-input" placeholder="Role/title" value="${role||''}"/>
+      <input id="ep-email" class="inline-input" placeholder="Email" value="${email||''}"/>
+      <input id="ep-phone" class="inline-input" placeholder="Phone" value="${phone||''}"/>
+      <input id="ep-linkedin" class="inline-input" placeholder="LinkedIn URL" value="${linkedin||''}"/>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:18px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="submitEditPerson('${id}')">Save</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+
+async function submitEditPerson(id) {
+  const name = document.getElementById('ep-name').value.trim();
+  if (!name) return;
+  const btn = document.querySelector('#modal-overlay .btn-primary');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  try {
+    const res = await fetch(`/api/people/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        full_name: name,
+        role: document.getElementById('ep-role').value.trim() || null,
+        email: document.getElementById('ep-email').value.trim() || null,
+        phone: document.getElementById('ep-phone').value.trim() || null,
+        linkedin: document.getElementById('ep-linkedin').value.trim() || null,
+      }),
+    });
+    if (!res.ok) throw new Error('Failed');
+    closeModal();
+    openPersonDetail(id); // reload
+  } catch(e) {
+    alert('Failed to save.');
+    btn.textContent = 'Save'; btn.disabled = false;
+  }
+}
+
+async function archivePerson(id) {
+  if (!confirm('Archive this contact? They will be hidden but not deleted.')) return;
+  try {
+    const res = await fetch(`/api/people/${id}/archive`, { method: 'PATCH' });
+    if (!res.ok) throw new Error('Failed');
+    goBack();
+  } catch(e) {
+    alert('Failed to archive.');
   }
 }
 
@@ -1411,7 +1633,7 @@ function switchView(view) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   event.currentTarget.classList.add('active');
   document.getElementById('topbar-title').textContent = view.charAt(0).toUpperCase() + view.slice(1);
-  const addLabels = { dashboard: 'Add item', companies: 'Add company', people: 'Add person', opportunities: 'Add opportunity', tasks: 'Add task', notes: 'Add note' };
+  const addLabels = { dashboard: 'Add client', companies: 'Add company', people: 'Add person', opportunities: 'Add opportunity', tasks: 'Add task', notes: 'Add note' };
   document.getElementById('add-btn').textContent = '+ ' + (addLabels[view] || 'Add');
   document.getElementById('add-btn').onclick = () => {
     if (view === 'companies') showAddCompanyModal();
