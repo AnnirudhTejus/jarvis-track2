@@ -249,11 +249,15 @@ class ActivityIn(BaseModel):
 
 @router.post("/activities")
 def log_activity(body: ActivityIn):
+    # activity_date column is timestamptz — send as full ISO datetime
+    activity_dt = body.activity_date
+    if len(activity_dt) == 10:  # plain "YYYY-MM-DD" date string
+        activity_dt = activity_dt + "T00:00:00+00:00"
     row = {
         "id": str(uuid.uuid4()),
         "company_id": body.company_id,
         "activity_type": body.activity_type,
-        "activity_date": body.activity_date,
+        "activity_date": activity_dt,
         "notes": body.notes,
         "person_id": body.person_id,
         "created_at": datetime.utcnow().isoformat(),

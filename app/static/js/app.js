@@ -599,8 +599,8 @@ async function openCompanyDetail(id) {
     </div>
   `).join('') || '<div class="empty-mini">No notes yet.</div>';
 
-  const activityTypeIcon = { call: 'ti-phone', meeting: 'ti-users', email: 'ti-mail', other: 'ti-activity' };
-  const activityTypeLabel = { call: 'Call', meeting: 'Meeting', email: 'Email', other: 'Activity' };
+  const activityTypeIcon = { call: 'ti-phone', meeting: 'ti-users', email: 'ti-mail', whatsapp: 'ti-brand-whatsapp', other: 'ti-activity' };
+  const activityTypeLabel = { call: 'Call', meeting: 'Meeting', email: 'Email', whatsapp: 'WhatsApp', other: 'Activity' };
   const activitiesHtml = details.activities.map(a => {
     const icon = activityTypeIcon[a.activity_type] || 'ti-activity';
     const label = activityTypeLabel[a.activity_type] || a.activity_type || 'Activity';
@@ -667,6 +667,7 @@ async function openCompanyDetail(id) {
                 <option value="call">📞 Call</option>
                 <option value="meeting">🤝 Meeting</option>
                 <option value="email">✉️ Email</option>
+                <option value="whatsapp">💬 WhatsApp</option>
                 <option value="other">📌 Other</option>
               </select>
               <select id="activity-person-${c.id}" class="inline-input" style="margin-bottom:6px;">
@@ -1106,8 +1107,8 @@ async function submitLogActivity(companyId) {
     if (list) {
       const empty = list.querySelector('.empty-mini');
       if (empty) empty.remove();
-      const icons = { call: 'ti-phone', meeting: 'ti-users', email: 'ti-mail', other: 'ti-activity' };
-      const labels = { call: 'Call', meeting: 'Meeting', email: 'Email', other: 'Activity' };
+      const icons = { call: 'ti-phone', meeting: 'ti-users', email: 'ti-mail', whatsapp: 'ti-brand-whatsapp', other: 'ti-activity' };
+      const labels = { call: 'Call', meeting: 'Meeting', email: 'Email', whatsapp: 'WhatsApp', other: 'Activity' };
       const icon = icons[activity.activity_type] || 'ti-activity';
       const label = labels[activity.activity_type] || 'Activity';
       const item = document.createElement('div');
