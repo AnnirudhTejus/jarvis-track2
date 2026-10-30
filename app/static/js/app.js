@@ -349,7 +349,11 @@ async function renderDashboard() {
   ]);
 
   _dashData = { funnel, stats, allCompanies };
-  _buildDashboard(null, null); // render with nothing expanded
+  // Default: open gone cold panel if there are cold companies, otherwise open tasks if any
+  const defaultPanel = (stats.stale_companies_count > 0) ? 'cold' : (stats.tasks_due_count > 0 ? 'tasks' : null);
+  _dashExpandedStage = null;
+  _dashExpandedPanel = defaultPanel;
+  _buildDashboard(null, defaultPanel);
 }
 
 function _buildDashboard(expandedStage, expandedPanel) {
@@ -364,12 +368,13 @@ function _buildDashboard(expandedStage, expandedPanel) {
     const isActive = expandedStage === stage;
     return `
       <div class="funnel-tile ${isActive ? 'funnel-tile--active' : ''}"
-           style="--stage-bg:${s.bg};--stage-text:${s.text};--stage-dot:${s.dot};cursor:pointer;"
+           style="--stage-bg:${s.bg};--stage-text:${s.text};--stage-dot:${s.dot};cursor:pointer;position:relative;"
            onclick="dashToggleStage('${stage}')">
         <div class="funnel-dot"></div>
         <div class="funnel-stage">${stage}</div>
         <div class="funnel-count">${n}</div>
         <div class="funnel-label">compan${n === 1 ? 'y' : 'ies'}</div>
+        <i class="ti ti-chevron-${isActive ? 'up' : 'down'}" style="position:absolute;bottom:6px;right:8px;font-size:11px;color:var(--stage-dot);opacity:0.7;"></i>
       </div>`;
   }).join('<div class="funnel-arrow"><i class="ti ti-chevron-right"></i></div>');
 
@@ -401,23 +406,25 @@ function _buildDashboard(expandedStage, expandedPanel) {
 
   const actionTilesHtml = `
     <div class="stats-row" style="margin-top:24px;">
-      <div class="stat-card action-tile ${taskActive ? 'action-tile--active' : ''}" onclick="dashTogglePanel('tasks')" style="cursor:pointer;">
+      <div class="stat-card action-tile ${taskActive ? 'action-tile--active' : ''}" onclick="dashTogglePanel('tasks')" style="cursor:pointer;position:relative;">
         <div class="stat-label" style="display:flex;align-items:center;gap:5px;">
           <i class="ti ti-alert-circle" style="color:#A32D2D;font-size:13px;"></i> Tasks overdue / due today
         </div>
         <div class="stat-value" style="${taskCount > 0 ? 'color:#A32D2D;' : ''}">${taskCount}</div>
         <div class="stat-sub" style="${taskCount > 0 ? 'color:#A32D2D;' : 'color:#0F6E56;'}">
-          ${taskCount > 0 ? 'Tap to see tasks' : 'All clear'}
+          ${taskCount > 0 ? 'Click to expand' : 'All clear'}
         </div>
+        <i class="ti ti-chevron-${taskActive ? 'up' : 'down'}" style="position:absolute;top:14px;right:14px;font-size:13px;color:#c4c0b8;"></i>
       </div>
-      <div class="stat-card action-tile ${coldActive ? 'action-tile--active' : ''}" onclick="dashTogglePanel('cold')" style="cursor:pointer;">
+      <div class="stat-card action-tile ${coldActive ? 'action-tile--active' : ''}" onclick="dashTogglePanel('cold')" style="cursor:pointer;position:relative;">
         <div class="stat-label" style="display:flex;align-items:center;gap:5px;">
           <i class="ti ti-building-off" style="color:#854F0B;font-size:13px;"></i> Gone cold
         </div>
         <div class="stat-value" style="${coldCount > 0 ? 'color:#854F0B;' : ''}">${coldCount}</div>
         <div class="stat-sub" style="${coldCount > 0 ? 'color:#854F0B;' : 'color:#0F6E56;'}">
-          ${coldCount > 0 ? 'Tap to see who' : 'All active'}
+          ${coldCount > 0 ? 'Click to expand' : 'All active'}
         </div>
+        <i class="ti ti-chevron-${coldActive ? 'up' : 'down'}" style="position:absolute;top:14px;right:14px;font-size:13px;color:#c4c0b8;"></i>
       </div>
       <div class="stat-card" style="opacity:0.5;pointer-events:none;">
         <div class="stat-label" style="display:flex;align-items:center;gap:5px;">
