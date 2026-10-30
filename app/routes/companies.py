@@ -58,9 +58,12 @@ def get_companies():
 
 @router.get("/dashboard/stats")
 def get_dashboard_stats():
+    from datetime import date
+    today = date.today().isoformat()
+    tasks = supabase.table("tasks").select("*, companies(name)").eq("status", "pending").lte("due_date", today).execute()
     return {
-        "tasks_due_count": 0,
-        "tasks_due": [],
+        "tasks_due_count": len(tasks.data),
+        "tasks_due": tasks.data,
         "stale_companies_count": 0,
         "done_today_count": 0,
     }
@@ -181,6 +184,19 @@ def create_note(body: NoteIn):
     result = supabase.table("notes").insert(row).execute()
     return result.data[0] if result.data else row
 
+class NoteEditIn(BaseModel):
+    content: str
+
+@router.patch("/notes/{note_id}")
+def edit_note(note_id: str, body: NoteEditIn):
+    result = supabase.table("notes").update({"content": body.content}).eq("id", note_id).execute()
+    return result.data[0] if result.data else {"id": note_id}
+
+@router.patch("/notes/{note_id}/archive")
+def archive_note(note_id: str):
+    result = supabase.table("notes").update({"archived": True}).eq("id", note_id).execute()
+    return {"id": note_id, "archived": True}
+
 
 # ── Task completion ────────────────────────────────────────────────────────────
 
@@ -228,7 +244,7 @@ def get_person_detail(person_id: str):
     def q_history():
         return supabase.table("person_company_history").select("*, companies(*)").eq("person_id", person_id).order("from_date", desc=True).execute()
     def q_notes():
-        return supabase.table("notes").select("*").eq("person_id", person_id).order("created_at", desc=True).execute()
+        return supabase.table("notes").select("*").eq("person_id", person_id).eq("archived", False).order("created_at", desc=True).execute()
     def q_activities():
         return supabase.table("activities").select("*").eq("person_id", person_id).order("activity_date", desc=True).execute()
     def q_tasks():

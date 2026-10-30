@@ -174,6 +174,61 @@ async function saveTaskEdit(id) {
   cancelTaskEdit(id);
 }
 
+// ── Note helpers ───────────────────────────────────────────────────────────────
+
+function noteItemHtml(n, personId) {
+  return `
+    <div class="note-box" id="note-${n.id}">
+      <div id="note-view-${n.id}">
+        <div class="note-content">${n.content}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
+          <div class="note-date">${timeAgo(n.created_at)}</div>
+          <div style="display:flex;gap:4px;">
+            <button onclick="startNoteEdit('${n.id}')" style="background:none;border:none;cursor:pointer;color:#c8c6be;font-size:12px;padding:2px 5px;" title="Edit"><i class="ti ti-pencil"></i></button>
+            <button onclick="archiveNote('${n.id}','${personId}')" style="background:none;border:none;cursor:pointer;color:#c8c6be;font-size:12px;padding:2px 5px;" title="Archive"><i class="ti ti-archive"></i></button>
+          </div>
+        </div>
+      </div>
+      <div id="note-edit-${n.id}" style="display:none;">
+        <textarea id="note-edit-text-${n.id}" class="inline-input" rows="4" style="resize:vertical;">${n.content}</textarea>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="saveNoteEdit('${n.id}')">Save</button>
+          <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;" onclick="cancelNoteEdit('${n.id}')">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function startNoteEdit(id) {
+  document.getElementById(`note-view-${id}`).style.display = 'none';
+  document.getElementById(`note-edit-${id}`).style.display = 'block';
+  document.getElementById(`note-edit-text-${id}`).focus();
+}
+
+function cancelNoteEdit(id) {
+  document.getElementById(`note-edit-${id}`).style.display = 'none';
+  document.getElementById(`note-view-${id}`).style.display = 'block';
+}
+
+async function saveNoteEdit(id) {
+  const content = document.getElementById(`note-edit-text-${id}`).value.trim();
+  if (!content) return;
+  await fetch(`/api/notes/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content })
+  });
+  document.querySelector(`#note-view-${id} .note-content`).textContent = content;
+  cancelNoteEdit(id);
+}
+
+async function archiveNote(id, personId) {
+  await fetch(`/api/notes/${id}/archive`, { method: 'PATCH' });
+  const el = document.getElementById(`note-${id}`);
+  if (el) el.remove();
+}
+
 function toggleDoneTasks(scopeId) {
   const list = document.getElementById(`done-list-${scopeId}`);
   const chevron = document.getElementById(`done-chevron-${scopeId}`);
@@ -575,12 +630,7 @@ async function openPersonDetail(id) {
     : '';
 
   // ── Tab: Notes ──────────────────────────────────────────────────────────────
-  const notesListHtml = (details.notes || []).map(n => `
-    <div class="note-box">
-      <div class="note-content">${n.content}</div>
-      <div class="note-date">${timeAgo(n.created_at)}</div>
-    </div>
-  `).join('') || '<div class="empty-mini">No notes yet.</div>';
+  const notesListHtml = (details.notes || []).map(n => noteItemHtml(n, p.id)).join('') || '<div class="empty-mini">No notes yet.</div>';
 
   // ── Tab: Tasks ──────────────────────────────────────────────────────────────
   const pendingTasksHtml = pendingTasks.map(t => taskItemHtml(t)).join('') || '<div class="empty-mini">No open tasks.</div>';
@@ -623,11 +673,6 @@ async function openPersonDetail(id) {
             <span style="color:#d4d1c8;">·</span>
             ${lastSeenHtml}
           </div>
-        </div>
-        <div style="display:flex;gap:8px;flex-shrink:0;">
-          ${p.email    ? `<a href="mailto:${p.email}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;" title="${p.email}"><i class="ti ti-mail"></i></a>` : ''}
-          ${p.phone    ? `<a href="tel:${p.phone}" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;" title="${p.phone}"><i class="ti ti-phone"></i></a>` : ''}
-          ${p.linkedin ? `<a href="${p.linkedin}" target="_blank" class="icon-link" style="font-size:18px;padding:8px;border-radius:8px;border:1px solid #e8e6df;"><i class="ti ti-brand-linkedin"></i></a>` : ''}
         </div>
       </div>
 
