@@ -24,7 +24,9 @@ async function fetchCompanyDetails(id) {
 
 async function fetchPeople() {
   const res = await fetch('/api/people');
-  return await res.json();
+  const data = await res.json();
+  window._allPeople = data; // cache for search
+  return data;
 }
 
 async function fetchTasks() {
@@ -364,6 +366,8 @@ async function renderDashboard() {
     fetchDashboardStats().catch(() => ({ tasks_due_count: 0, tasks_due: [], stale_companies_count: 0, stale_companies: [], done_today_count: 0 })),
     fetch('/api/companies').then(r => r.json()).catch(() => [])
   ]);
+  // Pre-fetch people for search (non-blocking)
+  if (!window._allPeople) fetchPeople().catch(() => {});
 
   _dashData = { funnel, stats, allCompanies };
   // Default: open gone cold panel if there are cold companies, otherwise open tasks if any
@@ -1802,6 +1806,87 @@ function switchFilter(el) {
   document.querySelectorAll('.filter-pill').forEach(e => e.classList.remove('active'));
   el.classList.add('active');
 }
+
+// ─── Search ───────────────────────────────────────────────────────────────────
+function openSearch() {
+  document.getElementById('search-overlay').style.display = 'block';
+  document.getElementById('search-results').innerHTML = '<div style="padding:20px;text-align:center;color:#a09e97;font-size:13px;">Search companies and people</div>';
+  setTimeout(() => document.getElementById('search-input').focus(), 50);
+}
+
+function closeSearch() {
+  document.getElementById('search-overlay').style.display = 'none';
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-results').innerHTML = '';
+}
+
+function handleSearchInput(val) {
+  const q = val.trim().toLowerCase();
+  const resultsEl = document.getElementById('search-results');
+  if (!q) {
+    resultsEl.innerHTML = '<div style="padding:20px;text-align:center;color:#a09e97;font-size:13px;">Search companies and people</div>';
+    return;
+  }
+
+  // Search companies
+  const allCompanies = (_dashData && _dashData.allCompanies) || [];
+  const matchedCompanies = allCompanies.filter(c => c.name && c.name.toLowerCase().includes(q));
+
+  // Search people — use cached people list from window._allPeople
+  const allPeople = window._allPeople || [];
+  const matchedPeople = allPeople.filter(p => {
+    const name = (p.people && p.people.full_name) || p.full_name || '';
+    return name.toLowerCase().includes(q);
+  });
+
+  if (!matchedCompanies.length && !matchedPeople.length) {
+    resultsEl.innerHTML = `<div style="padding:20px;text-align:center;color:#a09e97;font-size:13px;">No results for "<strong>${val}</strong>"</div>`;
+    return;
+  }
+
+  let html = '';
+
+  if (matchedCompanies.length) {
+    html += `<div style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#a09e97;padding:10px 14px 4px;">Companies</div>`;
+    html += matchedCompanies.map(c => `
+      <div class="search-result-item" onclick="closeSearch();openCompanyDetail('${c.id}')" style="display:flex;align-items:center;gap:12px;padding:11px 14px;cursor:pointer;border-top:1px solid #f0ede7;">
+        <div class="company-avatar ${c.avatar_color}" style="width:34px;height:34px;font-size:12px;border-radius:8px;flex-shrink:0;">${c.initials}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:14px;font-weight:500;color:#2c2c2a;">${c.name}</div>
+          <div style="font-size:12px;color:#73726c;">${[c.industry, c.location].filter(Boolean).join(' · ') || '—'}</div>
+        </div>
+        <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:#d4edda;color:#1a6b30;white-space:nowrap;">Company</span>
+      </div>`).join('');
+  }
+
+  if (matchedPeople.length) {
+    html += `<div style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#a09e97;padding:10px 14px 4px;${matchedCompanies.length ? 'border-top:1px solid #f0ede7;' : ''}">People</div>`;
+    html += matchedPeople.map(p => {
+      const person = p.people || p;
+      const name = person.full_name || '';
+      const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+      const company = (p.companies && p.companies.name) || (p.company_name) || '';
+      const role = p.role || '';
+      const sub = [role, company].filter(Boolean).join(' · ');
+      return `
+      <div class="search-result-item" onclick="closeSearch();openPersonDetail('${person.id}')" style="display:flex;align-items:center;gap:12px;padding:11px 14px;cursor:pointer;border-top:1px solid #f0ede7;">
+        <div class="company-avatar av-purple" style="width:34px;height:34px;font-size:12px;border-radius:50%;flex-shrink:0;">${initials}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:14px;font-weight:500;color:#2c2c2a;">${name}</div>
+          <div style="font-size:12px;color:#73726c;">${sub || '—'}</div>
+        </div>
+        <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:#d1ecf1;color:#0c5460;white-space:nowrap;">Person</span>
+      </div>`;
+    }).join('');
+  }
+
+  resultsEl.innerHTML = html;
+}
+
+// Keyboard shortcut: Escape closes search
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeSearch();
+});
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 refreshTasksBadge();

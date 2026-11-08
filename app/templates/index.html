@@ -29,8 +29,22 @@
       <div class="topbar">
         <div class="topbar-title" id="topbar-title">Dashboard</div>
         <div class="topbar-actions">
-          <button class="btn btn-secondary"><i class="ti ti-filter"></i> Filter</button>
+          <button class="btn btn-secondary" id="search-btn" onclick="openSearch()" title="Search"><i class="ti ti-search"></i></button>
           <button class="btn btn-primary" id="add-btn">+ Add item</button>
+        </div>
+      </div>
+
+      <!-- Search overlay -->
+      <div id="search-overlay" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.45);" onclick="if(event.target===this)closeSearch()">
+        <div style="max-width:520px;margin:60px auto 0;padding:0 16px;">
+          <div style="display:flex;align-items:center;gap:10px;background:#fff;border-radius:12px;padding:11px 14px;border:1.5px solid #5c6ac4;box-shadow:0 4px 24px rgba(0,0,0,0.18);">
+            <i class="ti ti-search" style="color:#5c6ac4;font-size:16px;flex-shrink:0;"></i>
+            <input id="search-input" type="text" placeholder="Search companies or people…"
+              style="flex:1;border:none;outline:none;font-size:15px;color:#2c2c2a;font-family:inherit;background:transparent;"
+              oninput="handleSearchInput(this.value)" autocomplete="off" autocorrect="off" spellcheck="false">
+            <button onclick="closeSearch()" style="background:none;border:none;cursor:pointer;color:#73726c;font-size:13px;font-family:inherit;padding:2px 4px;">Cancel</button>
+          </div>
+          <div id="search-results" style="background:#fff;border-radius:12px;margin-top:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.14);max-height:60vh;overflow-y:auto;"></div>
         </div>
       </div>
 <div class="content" id="main-content">
